@@ -22,7 +22,7 @@ UP =        "\033[A"
 
 TIMEOUT = 5
 
-local_ip = "127.0.1.1"
+local_ip = "localhost"
 
 def heartbeat_thread(s, interval):
     while(True):
