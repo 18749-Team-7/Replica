@@ -72,6 +72,8 @@ def client_service_thread(s, addr, verbose=False):
     users[username] = s
     users_mutex.release()
 
+    print("Login from:", username)
+
     # Send user joined message to all other users
     message = dict()
     message["type"] = "login_success"
@@ -95,6 +97,8 @@ def client_service_thread(s, addr, verbose=False):
                 del users[username]
                 users_mutex.release()
 
+                print("Logout from:", username)
+
                 message = dict()
                 message["type"] = "logout_success"
                 message["username"] = username
@@ -113,11 +117,11 @@ def client_service_thread(s, addr, verbose=False):
                 message["username"] = username
                 message["text"] = chat_message
 
-                users_mutex.acquire()
-                message["id"] = message_count
-                message["hash"] = get_hash(chat_message, message_count)
-                message_count = message_count + 1
-                users_mutex.release()
+                # users_mutex.acquire()
+                # message["id"] = message_count
+                # message["hash"] = get_hash(chat_message, message_count)
+                # message_count = message_count + 1
+                # users_mutex.release()
 
                 message = json.dumps(message)
                 broadcast(message)
@@ -154,7 +158,7 @@ def tcp_server(port, verbose=False):
             # Accept a new connection
             conn, addr = s.accept()
             # Initiate a client listening thread
-            threading.Thread(target=client_service_thread, args=(conn, addr, logfile, verbose)).start()
+            threading.Thread(target=client_service_thread, args=(conn, addr, verbose)).start()
 
     except KeyboardInterrupt:
         s.close()
