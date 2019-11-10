@@ -166,10 +166,13 @@ def client_service_thread(s, addr, verbose=False):
     return
 
 def tcp_server(port, verbose=False):
-    host_ip = socket.gethostbyname(socket.gethostname())
+    # host_ip = socket.gethostbyname(socket.gethostname())
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    host_ip = s.getsockname()[0]
     print(RED + "Starting chat server on " + str(host_ip) + ":" + str(port) + RESET)
 
-    start_heartbeat("localhost", 10000, 1) # TODO: Don't hardcode these values. Interval = 1 sec
+    start_heartbeat(host_ip, 10000, 1) # TODO: Don't hardcode these values. Interval = 1 sec
 
     # Open listening socket of Replica
     s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
@@ -180,10 +183,15 @@ def tcp_server(port, verbose=False):
         while(True):
             # Accept a new connection
             conn, addr = s.accept()
+            print("Accepted new client")
             # Initiate a client listening thread
             threading.Thread(target=client_service_thread, args=(conn, addr, verbose)).start()
 
     except KeyboardInterrupt:
+        users_mutex.acquire()
+        for _, s_client in users.items():
+            s_client.close()
+        users_mutex.release()
         s.close()
         print(RED + "Closing chat server on " + str(host_ip) + ":" + str(port) + RESET)
     except Exception as e:
