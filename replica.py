@@ -41,7 +41,7 @@ class Replica():
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
 
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.port) + RESET)
-        self.tcp_server()
+        self.chat_server()
 
 
     def set_host_ip(self):
@@ -53,11 +53,16 @@ class Replica():
     def heartbeat_thread(self, s, interval):
         while(True):
             try:
-                packet = '{"function": "heartbeat"}'
+                packet = '{"type": "heartbeat"}'
                 s.send(packet.encode("utf-8"))
                 time.sleep(interval)
-            except:
-                print("Error: Heartbeat failed to send.")
+
+            except KeyboardInterrupt:
+                s.close()
+                return
+
+            except Exception as e:
+                print(e)
                 time.sleep(interval)
 
     def start_heartbeat(self, interval):
@@ -65,8 +70,10 @@ class Replica():
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
             s.connect((self.ip, self.HB_port))
             print(RED + "Connected to local fault detector at: " + self.ip + ":" + str(self.port) + RESET)
-        except:
-            print("Error: Failed to connect to LFD.")
+
+        except Exception as e:
+            print(e)
+            return
 
         threading.Thread(target=self.heartbeat_thread,args=(s, interval)).start()
 
@@ -125,7 +132,6 @@ class Replica():
         message = json.dumps(message)
         self.broadcast(message)
 
-        
         
         # Receive, process, and retransmit chat messages from the client
         while True:
@@ -188,7 +194,7 @@ class Replica():
                 s.close()
         return
 
-    def tcp_server(self):
+    def chat_server(self):
         # Open listening socket of Replica
         self.s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
         self.s.bind((self.ip, self.port))
