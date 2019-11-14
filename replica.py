@@ -29,6 +29,9 @@ class Replica():
         self.ip = self.host_ip
         self.verbose = verbose
         self.HB_port = 10000
+        self.rp_msg_count = 0
+
+        # Client variables
 
         # Global variables
         self.users = dict()
@@ -129,8 +132,10 @@ class Replica():
         message = dict()
         message["type"] = "login_success"
         message["username"] = login_data["username"]
+        message["clock"] = self.rp_msg_count
         message = json.dumps(message)
         self.broadcast(message)
+        self.rp_msg_count += 1
 
         
         # Receive, process, and retransmit chat messages from the client
@@ -152,8 +157,10 @@ class Replica():
                     message = dict()
                     message["type"] = "logout_success"
                     message["username"] = username
+                    message["clock"] = self.rp_msg_count
                     message = json.dumps(message)
                     self.broadcast(message)
+                    self.rp_msg_count += 1
 
                     s.close()
                     return
@@ -166,6 +173,7 @@ class Replica():
                     message["type"] = "receive_message"
                     message["username"] = username
                     message["text"] = chat_message
+                    message["clock"] = self.rp_msg_count
 
                     # users_mutex.acquire()
                     # message["id"] = message_count
@@ -175,6 +183,7 @@ class Replica():
 
                     message = json.dumps(message)
                     self.broadcast(message)
+                    self.rp_msg_count += 1
                     
                 # Logging
                 if(self.verbose): print(message)
@@ -188,8 +197,10 @@ class Replica():
                 message = dict()
                 message["type"] = "logout_success"
                 message["username"] = username
+                message["clock"] = self.rp_msg_count
                 message = json.dumps(message)
                 self.broadcast(message)
+                self.rp_msg_count += 1
 
                 s.close()
         return
