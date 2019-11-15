@@ -131,6 +131,7 @@ class Replica():
 
         # Otherwise, we accept the client
         username = login_data["username"]
+        print(RED + "Accepted {}".format(username) + RESET)
         # Add the client socket to the users dictionary
         self.users_mutex.acquire()
         self.users[username] = s
@@ -158,7 +159,7 @@ class Replica():
                     return
 
             except:
-                print(RED + "Client has disconnected" + RESET)
+                print(RED + "{} has disconnected".format(username) + RESET)
                 return
         return
 
@@ -255,7 +256,6 @@ class Replica():
             while(True):
                 # Accept a new connection
                 conn, addr = self.s.accept()
-                print("Accepted new client")
                 # Initiate a client listening thread
                 threading.Thread(target=self.client_service_thread, args=(conn, addr)).start()
 
