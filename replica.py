@@ -35,6 +35,7 @@ class Replica():
         self.manager = multiprocessing.Manager()
         self.client_msg_dict = self.manager.dict()
         self.client_proc_msg_count = {}
+        self.is_in_quiescence = False
 
         # Client variables
 
@@ -163,21 +164,21 @@ class Replica():
 
     def client_msg_queue_proc(self):
         while True:
-            # TODO: Insert quiscence control here
-
-            # TODO: Perform Lightweight gossip here, and check if you have the 
-            # message in the dictionary, if not wait for it and then process it.
-
+            # Quiescence control added here
+            while self.is_in_quiescence:
+                continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
                 continue
+            
+            # Pop a message from the queue
             data = self.client_msg_queue.get()
+
+            # TODO: Perform Lightweight gossip here, and check if you have the 
+            # message in the dictionary, if not wait for it and then process it.
+
             username = data["username"]
-
-            # TODO: Check if the queue implementation is blocking, if yes, 
-            # then the quiscene implementation must change
-
             # If the message has already been processed
             if data["clock"] < self.client_proc_msg_count[username]:
                 continue
