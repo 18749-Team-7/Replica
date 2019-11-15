@@ -234,6 +234,16 @@ class Replica():
                 self.broadcast(message)
                 self.rp_msg_count += 1
 
+    # Creates a checkpoint dictionary and returns it
+    def create_checkpoint(self):
+        checkpoint_msg = {}
+        checkpoint_msg["type"] = "checkpoint"
+        checkpoint_msg["rp_msg_count"] = self.rp_msg_count
+        checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
+
+        checkpoint_msg = json.loads(checkpoint_msg)
+        return checkpoint_msg
+
     def chat_server(self):
         # Open listening socket of Replica
         self.s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
