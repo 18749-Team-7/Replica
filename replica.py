@@ -174,14 +174,15 @@ class Replica():
             
             # Pop a message from the queue
             data = self.client_msg_queue.get()
-
-            # TODO: Perform Lightweight gossip here, and check if you have the 
-            # message in the dictionary, if not wait for it and then process it.
-
             username = data["username"]
+
             # If the message has already been processed
             if data["clock"] < self.client_proc_msg_count[username]:
                 continue
+
+            # TODO: Perform Lightweight gossip here, and check if you have the 
+            # message in the dictionary, if not wait for it and then process it.
+            
 
             self.client_proc_msg_count[username] += 1
 
