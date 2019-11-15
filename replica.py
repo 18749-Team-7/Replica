@@ -32,6 +32,9 @@ class Replica():
         self.HB_port = 10000
         self.rp_msg_count = 0
         self.client_msg_queue = multiprocessing.Queue()
+        self.manager = multiprocessing.Manager()
+        self.client_msg_dict = self.manager.dict()
+        self.client_proc_msg_count = {}
 
         # Client variables
 
@@ -132,9 +135,12 @@ class Replica():
         self.users[username] = s
         self.users_mutex.release()
 
+        self.client_proc_msg_count[username] = 0
+
 
         # Insert job in client queue
         self.client_msg_queue.put(login_data)
+        self.client_msg_dict[(username, login_data["clock"])] = login_data
 
         
         # Receive and put message in the queue
@@ -145,6 +151,7 @@ class Replica():
                 data = json.loads(data)
 
                 self.client_msg_queue.put(data)
+                self.client_msg_dict[(username, data["clock"])] = data
 
                 if (data["type"] == "logout"):
                     return
@@ -158,9 +165,24 @@ class Replica():
         while True:
             # TODO: Insert quiscence control here
 
+            # TODO: Perform Lightweight gossip here, and check if you have the 
+            # message in the dictionary, if not wait for it and then process it.
+
+
             # Get job from the queue and process it
+            if self.client_msg_queue.empty():
+                continue
             data = self.client_msg_queue.get()
             username = data["username"]
+
+            # TODO: Check if the queue implementation is blocking, if yes, 
+            # then the quiscene implementation must change
+
+            # If the message has already been processed
+            if data["clock"] < self.client_proc_msg_count[username]:
+                continue
+
+            self.client_proc_msg_count[username] += 1
 
             # Print received message here
             print(YELLOW + "(RECV) -> {}".format(data) + RESET)
