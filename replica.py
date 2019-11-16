@@ -58,7 +58,7 @@ class Replica():
 
         # Start the chat server
         print(GREEN + "Good to Go" + RESET)
-        threading.Thread(target=self.print_membership_thread,args=(1,)).start()
+        # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         self.chat_server()
 
@@ -160,6 +160,9 @@ class Replica():
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
 
+                # Print out the new membership set
+                members = [addr for addr in self.members] + [self.ip]
+                print("Updated Membership Set: " +str(members))
 
             except KeyboardInterrupt:
                 s.close()
@@ -217,7 +220,7 @@ class Replica():
         replica_to_replica_count = 0
         while True:
             try:
-                data = "Ping from " + self.ip + " | " + str(replica_to_replica_count)
+                data = YELLOW + "Ping from " + self.ip + " | " + str(replica_to_replica_count) + RESET
                 s.send(data.encode("utf-8"))
                 replica_to_replica_count = replica_to_replica_count + 1
                 time.sleep(1)
@@ -226,7 +229,6 @@ class Replica():
                 s.close()
                 return
             except Exception as e:
-                print(e)
                 return
 
     def replica_receive_thread(self, s):
@@ -234,12 +236,12 @@ class Replica():
             try:
                 data = s.recv(BUF_SIZE)
                 data = data.decode("utf-8")
-                print(data)
+                if data:
+                    print(data)
             except KeyboardInterrupt:
                 s.close()
                 return
             except Exception as e:
-                print(e)
                 return
     
     ###############################################
