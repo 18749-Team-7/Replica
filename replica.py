@@ -178,8 +178,8 @@ class Replica():
                     addr = addr[0]
                     self.members[addr] = conn
                     print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                    threading.Thread(target=self.replica_send_thread(),args=(conn,)).start()
-                    threading.Thread(target=self.replica_receive_thread(),args=(conn,)).start()
+                    threading.Thread(target=self.replica_send_thread,args=(conn,)).start()
+                    threading.Thread(target=self.replica_receive_thread,args=(conn,)).start()
      
             except Exception as e:
                 s.close()
@@ -198,8 +198,9 @@ class Replica():
                     self.members[addr] = s
                     self.members_mutex.release()
                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
-                    threading.Thread(target=self.replica_send_thread(),args=(s,)).start()
-                    threading.Thread(target=self.replica_receive_thread(),args=(s,)).start()
+                    print(s)
+                    threading.Thread(target=self.replica_send_thread,args=(s, )).start()
+                    threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
 
                 except Exception as e:
                     s.close()
