@@ -163,6 +163,7 @@ class Replica():
                         self.get_connection_from_old_replicas()
 
                     else: # Already member, need to connect to new members
+                        time.sleep(1)
                         self.connect_to_new_replicas()
                         # data = MAGENTA + replica_ckpt['rp_msg_count'] + replica_ckpt['client_proc_msg_count'] + self.ip + RESET
 
