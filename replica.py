@@ -116,6 +116,7 @@ class Replica():
 
         except Exception as e:
             print(e)
+            os.close(1)
 
 
         while True:
@@ -126,7 +127,7 @@ class Replica():
                 print(data)
 
 
-                if (data["type"] == "all_replicas"):
+                if (data["type"] == "all_replicas" or data["type"] == "add_replicas" ):
                     self.members_mutex.acquire()
                     for replica_ip in data["ip_list"]:
                         if replica_ip in self.members:
@@ -167,28 +168,33 @@ class Replica():
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
         s.bind((self.ip, self.replica_port))
         s.listen(5)
+        print(BLUE + "Listening for to other replica at " + self.ip + ":" + str(self.replica_port) + RESET)
         self.members_mutex.acquire()
-        try:
-            while(s_replica == None for _,s_replica in members.items()):
-                # Accept a new connection
-                conn, addr = s.accept()
-                members[addr] = conn
-                print(RED + "Received connection from existing replica at" + addr + RESET)
-                threading.Thread(target=self.replica_send_thread(),args=(conn,)).start()
-                threading.Thread(target=self.replica_receive_thread(),args=(conn,)).start()
-        except Exception as e:
-            print(e)
+        if len(self.members) != 0:
+            try:
+                while(s_replica == None for _, s_replica in self.members.items()):
+                    # Accept a new connection
+                    conn, addr = s.accept()
+                    self.members[addr] = conn
+                    print(RED + "Received connection from existing replica at" + addr + RESET)
+                    threading.Thread(target=self.replica_send_thread(),args=(conn,)).start()
+                    threading.Thread(target=self.replica_receive_thread(),args=(conn,)).start()
+     
+            except Exception as e:
+                print(e)
+
         self.members_mutex.release()
         self.good_to_go = True
 
     def connect_to_new_replicas(self):
-        for addr in members:
-            if members[addr] == None:
+        for addr in self.members:
+            if self.members[addr] == None:
                 try:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+                    print(BLUE + "Connecting to other replicas at " + addr + ":" + str(self.replica_port) + RESET)
                     s.connect((addr, self.replica_port))
                     self.members_mutex.acquire()
-                    members[addr] = s
+                    self.members[addr] = s
                     self.members_mutex.release()
                     print(RED + "Connected to new replica at: " + self.ip + ":" + str(self.replica_port) + RESET)
                     threading.Thread(target=self.replica_send_thread(),args=(s,)).start()
@@ -196,6 +202,7 @@ class Replica():
 
                 except Exception as e:
                     print(e)
+
 
     def replica_send_thread(self, s):
         replica_to_replica_count = 0
