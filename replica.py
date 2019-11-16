@@ -145,7 +145,7 @@ class Replica():
                 data = json.loads(data)
                 print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
-                if (data["type"] == "all_replicas" or data["type"] == "add_replicas" ):
+                if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
                     self.members_mutex.acquire()
                     for replica_ip in data["ip_list"]:
                         if replica_ip in self.members:
@@ -237,7 +237,7 @@ class Replica():
 
                 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
+                # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
 
             self.is_in_quiescence = False
@@ -281,7 +281,7 @@ class Replica():
                         print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
                     print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
-                    threading.Thread(target=self.replica_send_thread,args=(s, )).start()
+                    # threading.Thread(target=self.replica_send_thread,args=(s, )).start()
                     threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
 
                 except KeyboardInterrupt:
@@ -407,6 +407,23 @@ class Replica():
         checkpoint_msg = json.dumps(checkpoint_msg)
         return checkpoint_msg
     
+    # We pop the first message out of the queue and broadcast the vote to all replicas
+    def broadcast_vote(self, message):
+        pass
+
+    # Votes are read by the replica_receive_thread and place them into a set. 
+    # Wait.
+    # Once the set has been filled with enough votes (num replicas - 1), we commit the message and reset the set.
+    def process_votes(self):
+        pass
+
+    # Send message to client
+    # Update client counts
+    # Update global count
+    def commit_message(self):
+        pass
+
+
     def client_msg_queue_proc(self):
         while True:
             # Quiescence control added here
