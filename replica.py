@@ -137,7 +137,8 @@ class Replica():
         self.users[username] = s
         self.users_mutex.release()
 
-        self.client_proc_msg_count[username] = 0
+        if username not in self.client_proc_msg_count:
+            self.client_proc_msg_count[username] = 0
 
 
         # Insert job in client queue
