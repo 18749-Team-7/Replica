@@ -57,6 +57,7 @@ class Replica():
             pass
 
         # Start the chat server
+        print("Good to Go")
         threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         self.chat_server()
@@ -168,14 +169,14 @@ class Replica():
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
         s.bind((self.ip, self.replica_port))
         s.listen(5)
-        print(BLUE + "Listening for to other replica at " + self.ip + ":" + str(self.replica_port) + RESET)
         self.members_mutex.acquire()
         if len(self.members) != 0:
             try:
                 while(s_replica == None for _, s_replica in self.members.items()):
                     # Accept a new connection
                     conn, addr = s.accept()
-                    self.members[addr] = conn
+                    ip = addr[0]
+                    self.members[ip] = conn
                     print(RED + "Received connection from existing replica at" + addr + RESET)
                     threading.Thread(target=self.replica_send_thread(),args=(conn,)).start()
                     threading.Thread(target=self.replica_receive_thread(),args=(conn,)).start()
@@ -191,7 +192,6 @@ class Replica():
             if self.members[addr] == None:
                 try:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-                    print(BLUE + "Connecting to other replicas at " + addr + ":" + str(self.replica_port) + RESET)
                     s.connect((addr, self.replica_port))
                     self.members_mutex.acquire()
                     self.members[addr] = s
