@@ -181,8 +181,8 @@ class Replica():
                 data = data.decode("utf-8")
                 data = json.loads(data)
 
-                self.client_msg_queue.put(data)
                 self.client_msg_dict[(username, data["clock"])] = data
+                self.client_msg_queue.put(data)
 
                 if (data["type"] == "logout"):
                     return
