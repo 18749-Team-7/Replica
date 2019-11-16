@@ -39,6 +39,9 @@ class Replica():
 
         # Client variables
 
+        # RM Variables
+        self.RM_port = 15000
+
         # Global variables
         self.users = dict()
         self.users_mutex = threading.Lock() # Lock on users dict
@@ -49,7 +52,10 @@ class Replica():
         # Start the heartbeat thread
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
 
-        threading.Thread(target=self.client_msg_queue_proc).start()
+        # Listen to RM for info
+        threading.Thread(target=self.listen_RM, daemon=True).start()
+
+        threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
 
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.port) + RESET)
         self.chat_server()
@@ -59,6 +65,28 @@ class Replica():
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         self.host_ip = s.getsockname()[0]
+
+    ##########################################################
+    #   RM functions
+    ##########################################################
+    def listen_RM(self):
+        try:
+            self.sock_RM = socket.socket(socket.AF_INET,socket.SOCK_DGRAM) # IPv4, UDP
+
+            self.sock_RM.bind((self.host_ip, self.RM_port))
+
+            while True:
+                data, _ = self.sock_RM.recvfrom(1024)
+
+                if len(data) == 0:
+                    continue
+
+                msg = json.loads(data.decode("utf-8"))
+
+                print(YELLOW + "(RECV) -> RM : {}".format(msg) + RESET)
+
+        except:
+            os._exit(1)
 
     ##########################################################
     #   Heartbeat functions
@@ -88,7 +116,7 @@ class Replica():
             print(e)
             return
 
-        threading.Thread(target=self.heartbeat_thread,args=(s, interval)).start()
+        threading.Thread(target=self.heartbeat_thread,args=(s, interval), daemon=True).start()
 
     
 
@@ -142,8 +170,8 @@ class Replica():
 
 
         # Insert job in client queue
-        self.client_msg_queue.put(login_data)
         self.client_msg_dict[(username, login_data["clock"])] = login_data
+        self.client_msg_queue.put(login_data)
 
         
         # Receive and put message in the queue
@@ -180,11 +208,13 @@ class Replica():
 
             # If the message has already been processed
             if data["clock"] < self.client_proc_msg_count[username]:
+                del self.client_msg_dict[(username, data["clock"])]
                 continue
 
             # TODO: Perform Lightweight gossip here, and check if you have the 
             # message in the dictionary, if not wait for it and then process it.
             
+            del self.client_msg_dict[(username, data["clock"])]
 
             self.client_proc_msg_count[username] += 1
 
@@ -210,7 +240,7 @@ class Replica():
                 del self.users[username]
                 self.users_mutex.release()
 
-                print("Logout from:", username)
+                print(RED + "Logout from:", username + RESET)
 
                 message = dict()
                 message["type"] = "logout_success"
@@ -258,7 +288,7 @@ class Replica():
                 # Accept a new connection
                 conn, addr = self.s.accept()
                 # Initiate a client listening thread
-                threading.Thread(target=self.client_service_thread, args=(conn, addr)).start()
+                threading.Thread(target=self.client_service_thread, args=(conn, addr), daemon=True).start()
 
         except KeyboardInterrupt:
             self.users_mutex.acquire()
