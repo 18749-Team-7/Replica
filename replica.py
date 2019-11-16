@@ -5,6 +5,8 @@ import socket
 import time
 import threading
 import os
+import multiprocessing
+import sys
 
 BUF_SIZE = 1024
 
@@ -23,7 +25,7 @@ class Replica():
     Main Man
     """
 
-    def __init__(self, verbose):
+    def __init__(self, verbose=True):
         self.set_host_ip()
         self.ip = self.host_ip
         self.verbose = verbose
@@ -31,6 +33,14 @@ class Replica():
         self.HB_port      = 10000
         self.RM_port      = 15000
         self.replica_port = 20000
+
+        # Queues and Dicts
+        self.rp_msg_count = 0
+        self.client_msg_queue = multiprocessing.Queue()
+        self.manager = multiprocessing.Manager()
+        self.client_msg_dict = self.manager.dict()
+        self.client_proc_msg_count = {}
+        self.is_in_quiescence = False
 
         self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
 
@@ -50,7 +60,7 @@ class Replica():
         # Start the RM thread
         # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
         # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
-        threading.Thread(target=self.rm_thread,args=()).start()
+        threading.Thread(target=self.rm_thread, daemon=True).start()
 
 
         while (not self.good_to_go):
@@ -60,6 +70,7 @@ class Replica():
         print(GREEN + "Good to Go" + RESET)
         # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
+        threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
         self.chat_server()
 
 
@@ -100,7 +111,7 @@ class Replica():
             print(e)
             return
 
-        threading.Thread(target=self.heartbeat_thread,args=(s, interval)).start()
+        threading.Thread(target=self.heartbeat_thread,args=(s, interval), daemon=True).start()
 
 
     ###############################################
@@ -192,8 +203,8 @@ class Replica():
                 addr = addr[0]
                 self.members[addr] = conn
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                threading.Thread(target=self.replica_send_thread,args=(conn,)).start()
-                threading.Thread(target=self.replica_receive_thread,args=(conn,)).start()
+                threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
+                threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
      
         except KeyboardInterrupt:
             s.close()
@@ -305,19 +316,18 @@ class Replica():
 
         # Otherwise, we accept the client
         username = login_data["username"]
+        print(RED + "Accepted: {}".format(username) + RESET)
         # Add the client socket to the users dictionary
         self.users_mutex.acquire()
         self.users[username] = s
         self.users_mutex.release()
 
-        print("Login from:", username)
+        if username not in self.client_proc_msg_count:
+            self.client_proc_msg_count[username] = 0
 
-        # Send user joined message to all other users
-        message = dict()
-        message["type"] = "login_success"
-        message["username"] = login_data["username"]
-        message = json.dumps(message)
-        self.broadcast(message)
+        # Insert job in client queue
+        self.client_msg_dict[(username, login_data["clock"])] = login_data
+        self.client_msg_queue.put(login_data)
 
         
         # Receive, process, and retransmit chat messages from the client
@@ -327,60 +337,99 @@ class Replica():
                 data = data.decode("utf-8")
                 data = json.loads(data)
 
-                # If the client is attempting to logout
-                if (data["type"] == "logout"):
-                    # Delete the current client from the dictionary
-                    self.users_mutex.acquire()
-                    del self.users[username]
-                    self.users_mutex.release()
-
-                    print("Logout from:", username)
-
-                    message = dict()
-                    message["type"] = "logout_success"
-                    message["username"] = username
-                    message = json.dumps(message)
-                    self.broadcast(message)
-
-                    s.close()
-                    return
-
-                # If the client sends a normal chat message
-                elif (data["type"] == "send_message"):
-                    chat_message = data["text"]
-
-                    message = dict()
-                    message["type"] = "receive_message"
-                    message["username"] = username
-                    message["text"] = chat_message
-
-                    # users_mutex.acquire()
-                    # message["id"] = message_count
-                    # message["hash"] = get_hash(chat_message, message_count)
-                    # message_count = message_count + 1
-                    # users_mutex.release()
-
-                    message = json.dumps(message)
-                    self.broadcast(message)
-                    
-                # Logging
-                if(self.verbose): print(message)
+                self.client_msg_dict[(username, data["clock"])] = data
+                self.client_msg_queue.put(data)
 
             except:
-                # Log the user out forcefully
+                print(RED + "{} has disconnected".format(username) + RESET)
+                s.close()
+                return
+        return
+
+    # Creates a checkpoint dictionary and returns it
+    def create_checkpoint(self):
+        checkpoint_msg = {}
+        checkpoint_msg["type"] = "checkpoint"
+        checkpoint_msg["rp_msg_count"] = self.rp_msg_count
+        checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
+
+        checkpoint_msg = json.loads(checkpoint_msg)
+        return checkpoint_msg
+    
+    def client_msg_queue_proc(self):
+        while True:
+            # Quiescence control added here
+            while self.is_in_quiescence:
+                continue
+
+            # Get job from the queue and process it
+            if self.client_msg_queue.empty():
+                continue
+            
+            # Pop a message from the queue
+            data = self.client_msg_queue.get()
+            username = data["username"]
+
+            # If the message has already been processed
+            if data["clock"] < self.client_proc_msg_count[username]:
+                del self.client_msg_dict[(username, data["clock"])]
+                continue
+
+            # TODO: Perform Lightweight gossip here, and check if you have the 
+            # message in the dictionary, if not wait for it and then process it.
+            
+            del self.client_msg_dict[(username, data["clock"])]
+
+            self.client_proc_msg_count[username] += 1
+
+            # Print received message here
+            print(YELLOW + "(RECV) -> {}".format(data) + RESET)
+            
+            # Login Packet
+            if (data["type"] == "login"):
+                # Send user joined message to all other users
+                message = dict()
+                message["type"] = "login_success"
+                message["username"] = data["username"]
+                message["clock"] = self.rp_msg_count
+                message = json.dumps(message)
+                self.broadcast(message)
+                self.rp_msg_count += 1
+
+            # If the client is attempting to logout
+            if (data["type"] == "logout"):
+                s = self.users[username]
+                # Delete the current client from the dictionary
                 self.users_mutex.acquire()
                 del self.users[username]
                 self.users_mutex.release()
 
+                print(RED + "Logout from:", username + RESET)
+
                 message = dict()
                 message["type"] = "logout_success"
                 message["username"] = username
+                message["clock"] = self.rp_msg_count
                 message = json.dumps(message)
                 self.broadcast(message)
+                self.rp_msg_count += 1
 
                 s.close()
-        return
 
+            # If the client sends a normal chat message
+            elif (data["type"] == "send_message"):
+                chat_message = data["text"]
+
+                message = dict()
+                message["type"] = "receive_message"
+                message["username"] = username
+                message["text"] = chat_message
+                message["clock"] = self.rp_msg_count
+
+                message = json.dumps(message)
+                self.broadcast(message)
+                self.rp_msg_count += 1
+    
     def chat_server(self):
         # Open listening socket of Replica
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
@@ -394,7 +443,7 @@ class Replica():
                 conn, addr = s.accept()
                 print("Accepted new client")
                 # Initiate a client listening thread
-                threading.Thread(target=self.client_service_thread, args=(conn, addr)).start()
+                threading.Thread(target=self.client_service_thread, args=(conn, addr), daemon=True).start()
 
         except KeyboardInterrupt:
             self.users_mutex.acquire()
@@ -424,4 +473,4 @@ if __name__ == '__main__':
     print("\nTotal time taken: " + str(time.time() - start_time) + " seconds")
 
     # Exit
-    os._exit(1)
+    sys.exit(1)
