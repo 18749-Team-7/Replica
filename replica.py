@@ -153,7 +153,8 @@ class Replica():
                         if replica_ip not in self.members:
                             print(RED + "Received del_replicas ip that was not in membership set" + RESET)
                         else:
-                            self.members[replica_ip].close() # close the socket to the failed replica
+                            if (self.members[replica_ip] != None):
+                                self.members[replica_ip].close() # close the socket to the failed replica
                             del self.members[replica_ip]
                     self.members_mutex.release()
 
@@ -190,6 +191,10 @@ class Replica():
                 threading.Thread(target=self.replica_send_thread,args=(conn,)).start()
                 threading.Thread(target=self.replica_receive_thread,args=(conn,)).start()
      
+        except KeyboardInterrupt:
+            s.close()
+            return
+
         except Exception as e:
             s.close()
             print(e)
@@ -208,8 +213,16 @@ class Replica():
                     self.members_mutex.release()
                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
                     print(s)
+
+                    data = MAGENTA + "This is a fake checkpoint from " + self.ip + RESET
+                    s.send(data.encode("utf-8"))
+
                     threading.Thread(target=self.replica_send_thread,args=(s, )).start()
                     threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
+
+                except KeyboardInterrupt:
+                    s.close()
+                    return
 
                 except Exception as e:
                     s.close()
