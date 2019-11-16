@@ -106,7 +106,8 @@ class Replica():
     ###############################################
     def print_membership_thread(self, interval):
         while True:
-            print("Current Membership Set:" + str(self.members))
+            members = [addr for addr in self.members] + [self.ip]
+            print("Current Membership Set:" +str(members))
             time.sleep(interval)
 
     def rm_thread(self):
@@ -165,6 +166,7 @@ class Replica():
                 return
 
     def missing_connections(self):
+        print(self.members)
         for addr in self.members:
             if (self.members[addr] == None):
                 return True
@@ -175,20 +177,19 @@ class Replica():
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
-        if len(self.members) != 0:
-            try:
-                while(missing_connections()):
-                    # Accept a new connection
-                    conn, addr = s.accept()
-                    addr = addr[0]
-                    self.members[addr] = conn
-                    print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                    threading.Thread(target=self.replica_send_thread,args=(conn,)).start()
-                    threading.Thread(target=self.replica_receive_thread,args=(conn,)).start()
+        try:
+            while(self.missing_connections()):
+                # Accept a new connection
+                conn, addr = s.accept()
+                addr = addr[0]
+                self.members[addr] = conn
+                print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
+                threading.Thread(target=self.replica_send_thread,args=(conn,)).start()
+                threading.Thread(target=self.replica_receive_thread,args=(conn,)).start()
      
-            except Exception as e:
-                s.close()
-                print(e)
+        except Exception as e:
+            s.close()
+            print(e)
 
         self.members_mutex.release()
         self.good_to_go = True
