@@ -53,11 +53,15 @@ class Replica():
         threading.Thread(target=self.rm_thread,args=()).start()
 
 
-        if (self.good_to_go):
-            # Start the chat server
-            threading.Thread(target=self.print_membership_thread,args=(s, 1)).start()
-            print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
-            self.chat_server()
+        while (not self.good_to_go):
+            pass
+
+        # Start the chat server
+        threading.Thread(target=self.print_membership_thread,args=(1,)).start()
+        print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
+        self.chat_server()
+
+
 
 
     def set_host_ip(self):
@@ -107,23 +111,25 @@ class Replica():
     def rm_thread(self):
         # Use port 15000 for RM
         try:
-            s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
             s.bind((self.ip, self.RM_port))
-            s.listen()
-            conn, addr = s.accept()
+
         except Exception as e:
             print(e)
 
+
         while True:
             try:
-                data = s.recv(BUF_SIZE)
+                data,_ = s.recvfrom(BUF_SIZE)
                 data = data.decode("utf-8")
                 data = json.loads(data)
+                print(data)
 
-                if (data["type"] == "add_replicas"):
+
+                if (data["type"] == "all_replicas"):
                     self.members_mutex.acquire()
                     for replica_ip in data["ip_list"]:
-                        if replica_ip in members:
+                        if replica_ip in self.members:
                             print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
                         else: 
                             self.members[replica_ip] = None
@@ -131,7 +137,7 @@ class Replica():
 
                     if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
                         self.members_mutex.acquire()
-                        del members[self.ip]
+                        del self.members[self.ip]
                         self.members_mutex.release()
                         print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET) 
                         self.get_connection_from_old_replicas()
@@ -156,8 +162,6 @@ class Replica():
                 s.close()
                 return
 
-            except Exception as e:
-                print(e)
 
     def get_connection_from_old_replicas(self):
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
@@ -180,18 +184,18 @@ class Replica():
     def connect_to_new_replicas(self):
         for addr in members:
             if members[addr] == None:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-                s.connect((addr, self.replica_port))
-                self.members_mutex.acquire()
-                members[addr] = s
-                self.members_mutex.release()
-                print(RED + "Connected to new replica at: " + self.ip + ":" + str(self.replica_port) + RESET)
-                threading.Thread(target=self.replica_send_thread(),args=(s,)).start()
-                threading.Thread(target=self.replica_receive_thread(),args=(s,)).start()
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+                    s.connect((addr, self.replica_port))
+                    self.members_mutex.acquire()
+                    members[addr] = s
+                    self.members_mutex.release()
+                    print(RED + "Connected to new replica at: " + self.ip + ":" + str(self.replica_port) + RESET)
+                    threading.Thread(target=self.replica_send_thread(),args=(s,)).start()
+                    threading.Thread(target=self.replica_receive_thread(),args=(s,)).start()
 
-            except Exception as e:
-                print(e)
+                except Exception as e:
+                    print(e)
 
     def replica_send_thread(self, s):
         replica_to_replica_count = 0
