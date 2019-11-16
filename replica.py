@@ -67,6 +67,7 @@ class Replica():
 
     def set_host_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.connect(("8.8.8.8", 80))
         self.host_ip = s.getsockname()[0]
 
@@ -91,6 +92,7 @@ class Replica():
     def start_heartbeat(self, interval):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.connect((self.ip, self.HB_port))
             print(RED + "Connected to local fault detector at: " + self.ip + ":" + str(self.HB_port) + RESET)
 
@@ -114,6 +116,7 @@ class Replica():
         # Use port 15000 for RM
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.ip, self.RM_port))
 
         except Exception as e:
@@ -178,6 +181,7 @@ class Replica():
 
     def get_connection_from_old_replicas(self):
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
@@ -206,6 +210,7 @@ class Replica():
         for addr in self.members:
             if self.members[addr] == None:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 try:
                     s.connect((addr, self.replica_port))
                     self.members_mutex.acquire()
@@ -379,6 +384,7 @@ class Replica():
     def chat_server(self):
         # Open listening socket of Replica
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.client_port))
         s.listen(5)
 
