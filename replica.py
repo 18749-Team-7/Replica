@@ -159,7 +159,7 @@ class Replica():
 
         # Otherwise, we accept the client
         username = login_data["username"]
-        print(RED + "Accepted {}".format(username) + RESET)
+        print(RED + "Accepted: {}".format(username) + RESET)
         # Add the client socket to the users dictionary
         self.users_mutex.acquire()
         self.users[username] = s
