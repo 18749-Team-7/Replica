@@ -175,13 +175,14 @@ class Replica():
                 while(s_replica == None for _, s_replica in self.members.items()):
                     # Accept a new connection
                     conn, addr = s.accept()
-                    ip = addr[0]
-                    self.members[ip] = conn
-                    print(RED + "Received connection from existing replica at" + addr + RESET)
+                    addr = addr[0]
+                    self.members[addr] = conn
+                    print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                     threading.Thread(target=self.replica_send_thread(),args=(conn,)).start()
                     threading.Thread(target=self.replica_receive_thread(),args=(conn,)).start()
      
             except Exception as e:
+                s.close()
                 print(e)
 
         self.members_mutex.release()
@@ -190,18 +191,19 @@ class Replica():
     def connect_to_new_replicas(self):
         for addr in self.members:
             if self.members[addr] == None:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
                 try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
                     s.connect((addr, self.replica_port))
                     self.members_mutex.acquire()
                     self.members[addr] = s
                     self.members_mutex.release()
-                    print(RED + "Connected to new replica at: " + self.ip + ":" + str(self.replica_port) + RESET)
+                    print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
                     threading.Thread(target=self.replica_send_thread(),args=(s,)).start()
                     threading.Thread(target=self.replica_receive_thread(),args=(s,)).start()
 
                 except Exception as e:
-                    print(e)
+                    s.close()
+                    print("what" + str(e))
 
 
     def replica_send_thread(self, s):
