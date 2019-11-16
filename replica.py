@@ -70,7 +70,7 @@ class Replica():
         #     pass
 
         # Start the chat server
-        print(GREEN + "Good to Go" + RESET)
+        print(MAGENTA + "Quiescence start" + RESET)
         # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
@@ -215,7 +215,7 @@ class Replica():
                         if not self.ckpt_received:
                             replica_ckpt = json.loads(data.decode("utf-8"))
 
-                            print(MAGENTA + 'Replica received {}'.format(replica_ckpt) + self.ip + RESET)
+                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
                             assert(replica_ckpt["type"] == "checkpoint")
                             self.rp_msg_count = replica_ckpt["rp_msg_count"]
@@ -241,6 +241,7 @@ class Replica():
                 threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
 
             self.is_in_quiescence = False
+            print(MAGENTA + "Quiescence end" + RESET)
      
         except KeyboardInterrupt:
             s.close()
@@ -257,6 +258,7 @@ class Replica():
         # Running Replica
 
         self.is_in_quiescence = True
+        print(MAGENTA + "Quiescence start" + RESET)
 
         for addr in self.members:
             if self.members[addr] == None:
@@ -278,6 +280,7 @@ class Replica():
                     except:
                         print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
+                    print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
                     threading.Thread(target=self.replica_send_thread,args=(s, )).start()
                     threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
 
@@ -290,6 +293,7 @@ class Replica():
                     print(e)
 
         self.is_in_quiescence = False
+        print(MAGENTA + "Quiescence end" + RESET)
 
 
     def replica_send_thread(self, s):
@@ -430,7 +434,7 @@ class Replica():
             self.client_proc_msg_count[username] += 1
 
             # Print received message here
-            print(YELLOW + "(RECV) -> {}".format(data) + RESET)
+            print(YELLOW + "(PROC) -> {}".format(data) + RESET)
             
             # Login Packet
             if (data["type"] == "login"):
