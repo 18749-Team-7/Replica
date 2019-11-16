@@ -147,7 +147,7 @@ class Replica():
                 elif (data["type"] == "del_replicas"):
                     self.members_mutex.acquire()
                     for replica_ip in data["ip_list"]:
-                        if replica_ip not in members:
+                        if replica_ip not in self.members:
                             print(RED + "Received del_replicas ip that was not in membership set" + RESET)
                         else:
                             self.members[replica_ip].close() # close the socket to the failed replica
