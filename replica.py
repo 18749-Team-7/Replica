@@ -164,6 +164,11 @@ class Replica():
                 s.close()
                 return
 
+    def missing_connections(self):
+        for addr in self.members:
+            if (self.members[addr] == None):
+                return True
+        return False
 
     def get_connection_from_old_replicas(self):
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
@@ -172,7 +177,7 @@ class Replica():
         self.members_mutex.acquire()
         if len(self.members) != 0:
             try:
-                while(s_replica == None for _, s_replica in self.members.items()):
+                while(missing_connections()):
                     # Accept a new connection
                     conn, addr = s.accept()
                     addr = addr[0]
@@ -204,7 +209,7 @@ class Replica():
 
                 except Exception as e:
                     s.close()
-                    print(str(e))
+                    print(e)
 
 
     def replica_send_thread(self, s):
