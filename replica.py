@@ -6,6 +6,7 @@ import time
 import threading
 import os
 import multiprocessing
+import sys
 
 BUF_SIZE = 1024
 
@@ -319,4 +320,4 @@ if __name__ == '__main__':
     print("\nTotal time taken: " + str(time.time() - start_time) + " seconds")
 
     # Exit
-    os._exit(1)
+    sys.exit(1)
