@@ -57,7 +57,7 @@ class Replica():
             pass
 
         # Start the chat server
-        print("Good to Go")
+        print(GREEN + "Good to Go" + RESET)
         threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         self.chat_server()
@@ -204,7 +204,7 @@ class Replica():
 
                 except Exception as e:
                     s.close()
-                    print("what" + str(e))
+                    print(str(e))
 
 
     def replica_send_thread(self, s):
@@ -214,6 +214,7 @@ class Replica():
                 data = "Ping from " + self.ip + " | " + str(replica_to_replica_count)
                 s.send(data.encode("utf-8"))
                 replica_to_replica_count = replica_to_replica_count + 1
+                time.sleep(1)
 
             except KeyboardInterrupt:
                 s.close()
