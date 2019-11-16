@@ -143,8 +143,7 @@ class Replica():
                 data,_ = s.recvfrom(BUF_SIZE)
                 data = data.decode("utf-8")
                 data = json.loads(data)
-                print(data)
-
+                print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
                 if (data["type"] == "all_replicas" or data["type"] == "add_replicas" ):
                     self.members_mutex.acquire()
@@ -183,14 +182,13 @@ class Replica():
 
                 # Print out the new membership set
                 members = [addr for addr in self.members] + [self.ip]
-                print("Updated Membership Set: " +str(members))
+                print(RED + "Updated Membership Set: " +str(members) + RESET)
 
             except KeyboardInterrupt:
                 s.close()
                 return
 
     def missing_connections(self):
-        print(self.members)
         for addr in self.members:
             if (self.members[addr] == None):
                 return True
@@ -278,7 +276,7 @@ class Replica():
                     try:
                         s.send(replica_ckpt.encode("utf-8"))
                     except:
-                        print('Replica ckeckpointing failed at:' + self.members[addr])
+                        print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
                     threading.Thread(target=self.replica_send_thread,args=(s, )).start()
                     threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
