@@ -404,6 +404,8 @@ class Replica():
                 del self.users[username]
                 self.users_mutex.release()
 
+                del self.client_proc_msg_count[username]
+
                 print(RED + "Logout from:", username + RESET)
 
                 message = dict()
