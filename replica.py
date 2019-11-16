@@ -66,8 +66,8 @@ class Replica():
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
 
-        while (not self.good_to_go):
-            pass
+        # while (not self.good_to_go):
+        #     pass
 
         # Start the chat server
         print(GREEN + "Good to Go" + RESET)
@@ -211,7 +211,7 @@ class Replica():
                 self.members[addr] = conn
 
                 try:
-                    data = s.recv(BUF_SIZE)
+                    data = conn.recv(BUF_SIZE)
                     if data:
                         if not self.ckpt_received:
                             replica_ckpt = json.loads(data.decode("utf-8"))
@@ -228,8 +228,8 @@ class Replica():
                             checkpoint_msg["type"] = "checkpoint"
                             checkpoint_msg["rp_msg_count"] = self.rp_msg_count
                             checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
-                            print(MAGENTA + "Internal State: {}".format(self.checkpoint_msg) + RESET)
-                            print(MAGENTA + "Checkpoint {}: {}".format(addr, self.checkpoint_msg) + RESET)
+                            print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
+                            print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
                             
   
                 except KeyboardInterrupt:
@@ -269,13 +269,13 @@ class Replica():
                     self.members[addr] = s
                     self.members_mutex.release()
                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
-                    print(s)
+                    # print(s)
 
                     # checkpointing
                     replica_ckpt = self.create_checkpoint()
 
                     try:
-                        s.send(replica_ckpt).encode("utf-8")
+                        s.send(replica_ckpt.encode("utf-8"))
                     except:
                         print('Replica ckeckpointing failed at:' + self.members[addr])
 
@@ -401,7 +401,7 @@ class Replica():
         checkpoint_msg["rp_msg_count"] = self.rp_msg_count
         checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
 
-        checkpoint_msg = json.loads(checkpoint_msg)
+        checkpoint_msg = json.dumps(checkpoint_msg)
         return checkpoint_msg
     
     def client_msg_queue_proc(self):
