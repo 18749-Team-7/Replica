@@ -41,6 +41,9 @@ class Replica():
         self.client_msg_dict = self.manager.dict()
         self.client_proc_msg_count = {}
         self.is_in_quiescence = True
+        self.majority = 0
+        self.votes = dict()
+        self.current_proposal =dict()
 
         # Flag to indicate if checkpoint was done
         self.ckpt_received = False
@@ -56,6 +59,8 @@ class Replica():
 
         self.members = dict()
         self.members_mutex = threading.Lock() # Lock on replica members dict
+        self.checkpoint_mutex = threading.Lock() # Lock on the checkpoint creation
+        self.votes_mutex = threading.Lock() #Lock on votes 
 
         # Start the heartbeat thread
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
@@ -238,8 +243,8 @@ class Replica():
 
                 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
-                threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
+                # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
+                threading.Thread(target=self.replica_receive_thread,args=(conn,addr), daemon=True).start()
 
             self.is_in_quiescence = False
      
@@ -272,15 +277,16 @@ class Replica():
                     print(s)
 
                     # checkpointing
+                    self.checkpoint_mutex.acquire()
                     replica_ckpt = self.create_checkpoint()
-
+                    self.checkpoint_mutex.release()
                     try:
                         s.send(replica_ckpt).encode("utf-8")
                     except:
                         print('Replica ckeckpointing failed at:' + self.members[addr])
 
-                    threading.Thread(target=self.replica_send_thread,args=(s, )).start()
-                    threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
+    
+                    threading.Thread(target=self.replica_receive_thread,args=(s, addr)).start()
 
                 except KeyboardInterrupt:
                     s.close()
@@ -308,19 +314,8 @@ class Replica():
             except Exception as e:
                 return
 
-    def replica_receive_thread(self, s):
-        while True:
-            try:
-                data = s.recv(BUF_SIZE)
-                data = data.decode("utf-8")
-                if data:
-                    print(data)
-            except KeyboardInterrupt:
-                s.close()
-                return
-            except Exception as e:
-                return
-    
+
+           
     ###############################################
     # Chat client functions
     ###############################################
@@ -403,6 +398,56 @@ class Replica():
 
         checkpoint_msg = json.loads(checkpoint_msg)
         return checkpoint_msg
+
+    def broadcast_votes(self):
+        # send proposals to all other replicas 
+        self.members_mutex.acquire()
+        for addr in self.members:
+            if self.members[addr] != None:
+                try: 
+                    self.members[addr].send(self.current_proposal.encode('utf-8'))
+                except Exception as e:
+                    self.members[addr].close()
+                    continue
+        self.members_mutex.release()
+
+
+    def replica_receive_thread(self, s, addr):
+    while True:
+        try:
+            data = s.recv(BUF_SIZE)
+            vote = data.decode("utf-8")
+            if data:
+                self.votes_mutex.acquire()
+                self.votes[addr] = vote
+                if((len(votes) >= len(self.members)) and len(self.members)>0):
+                    self.qurom = (len(self.members)/2) + 1;
+                    # process votes and reset dict
+                    self.process_votes()
+                self.votes_mutex.release()
+
+        except KeyboardInterrupt:
+            s.close()
+            return
+        except Exception as e:
+            return
+
+    def process_votes():
+        # majority condition check
+        # reset votes
+        self.votes = dict()
+        # commit messages 
+
+
+
+
+    def commit_messages():
+        #commit message to the dict
+        self.checkpoint_mutex.acquire()
+
+
+        self.checkpoint_mutex.release()
+
     
     def client_msg_queue_proc(self):
         while True:
@@ -415,16 +460,25 @@ class Replica():
                 continue
             
             # Pop a message from the queue
-            data = self.client_msg_queue.get()
-            username = data["username"]
+            if(self.current_proposal == None):
+                curr_mesg = self.client_msg_queue.get()
+                self.current_proposal = dict()
+                self.current_proposal["type"] = "vote"
+                self.current_proposal["msg"] = curr_mesg
+                self.current_proposal["replica_clock"] = self.rp_msg_count
+                username = curr_mesg["username"]
 
             # If the message has already been processed
-            if data["clock"] < self.client_proc_msg_count[username]:
-                del self.client_msg_dict[(username, data["clock"])]
+            if curr_mesg["clock"] < self.client_proc_msg_count[username]:
+                del self.client_msg_dict[(username, curr_mesg["clock"])]
                 continue
 
+
+            self.broadcast_votes()
+        
             # TODO: Perform Lightweight gossip here, and check if you have the 
             # message in the dictionary, if not wait for it and then process it.
+
             
             del self.client_msg_dict[(username, data["clock"])]
 
