@@ -377,6 +377,9 @@ class Replica():
             self.client_proc_msg_count[username] = 0
 
         # Insert job in client queue
+        while self.is_in_quiescence:
+            print(GREEN + "Log: {}".format(login_data) + RESET)
+
         self.client_msg_dict[(username, login_data["clock"])] = login_data
         self.client_msg_queue.put(login_data)
 
@@ -387,6 +390,9 @@ class Replica():
                 data = s.recv(BUF_SIZE)
                 data = data.decode("utf-8")
                 data = json.loads(data)
+
+                while self.is_in_quiescence:
+                    print(GREEN + "Log: {}".format(data) + RESET)
 
                 self.client_msg_dict[(username, data["clock"])] = data
                 self.client_msg_queue.put(data)
