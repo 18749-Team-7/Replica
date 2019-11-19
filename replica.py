@@ -7,6 +7,7 @@ import threading
 import os
 import multiprocessing
 import sys
+from collections import defaultdict
 
 BUF_SIZE = 1024
 
@@ -44,6 +45,8 @@ class Replica():
         self.majority = 0
         self.votes = dict()
         self.current_proposal =dict()
+        self.message_to_commit = None
+        self.commit_flag = 0
 
         # Flag to indicate if checkpoint was done
         self.ckpt_received = False
@@ -319,7 +322,7 @@ class Replica():
     ###############################################
     # Chat client functions
     ###############################################
-    def broadcast(self, message):
+    def broadcast_msg(self, message):
         # send message to all clients
         self.users_mutex.acquire()
         for _, s_client in self.users.items():
@@ -413,18 +416,29 @@ class Replica():
 
 
     def replica_receive_thread(self, s, addr):
-    while True:
-        try:
-            data = s.recv(BUF_SIZE)
-            vote = data.decode("utf-8")
-            if data:
-                self.votes_mutex.acquire()
-                self.votes[addr] = vote
-                if((len(votes) >= len(self.members)) and len(self.members)>0):
-                    self.qurom = (len(self.members)/2) + 1;
-                    # process votes and reset dict
-                    self.process_votes()
-                self.votes_mutex.release()
+        while True:
+
+            try:
+                connection.settimeout(2)
+                vote = s.recv(BUF_SIZE)
+                connection.settimeout(None)
+
+                if vote:
+                    vote = vote.decode("utf-8")
+                    assert vote['type'] == 'vote'
+                    self.votes_mutex.acquire()
+                    self.votes[addr] = vote
+                    self.votes_mutex.release()
+
+                    if((len(self.votes) >= len(self.members)) and len(self.members)>0):
+                        self.process_votes()
+                        self.commit_flag = 1
+            except:
+                if((len(self.votes) >= len(self.members)) and len(self.members)>0):
+                        self.process_votes()
+                        self.commit_flag = 1
+                    
+                        
 
         except KeyboardInterrupt:
             s.close()
@@ -433,20 +447,35 @@ class Replica():
             return
 
     def process_votes():
+        text_to_commit = None
+        message_to_commit = None
+        count_votes = defaultdict(lambda: 0)
+
+        self.quorum = (len(self.members)/2) + 1
+
         # majority condition check
+        for vote in self.votes.values():
+            if vote['text']['userclock'] == self.rp_msg_count +1:
+                count_votes[vote['text']['msg']] += 1
+
+        for key in count_votes.keys():
+            if (count_votes[key] >= self.quorum):
+                text_to_commit = key
+
+        if (text_to_commit == None):
+            text_to_commit = count_votes.keys().sort()[0]            
+
+        for vote in self.votes.values(): 
+            if vote['text']['msg'] == text_to_commit:
+                message_to_commit = vote['text']
+                break
+
         # reset votes
         self.votes = dict()
-        # commit messages 
 
+        self.message_to_commit = message_to_commit
+        return
 
-
-
-    def commit_messages():
-        #commit message to the dict
-        self.checkpoint_mutex.acquire()
-
-
-        self.checkpoint_mutex.release()
 
     
     def client_msg_queue_proc(self):
@@ -470,18 +499,25 @@ class Replica():
 
             # If the message has already been processed
             if curr_mesg["clock"] < self.client_proc_msg_count[username]:
-                del self.client_msg_dict[(username, curr_mesg["clock"])]
+                del self.client_msg_dict[(username, curr_mesg["userclock"])]
                 continue
 
-
             self.broadcast_votes()
-        
-            # TODO: Perform Lightweight gossip here, and check if you have the 
-            # message in the dictionary, if not wait for it and then process it.
 
+            while(self.commit_flag==0):
+                pass
             
-            del self.client_msg_dict[(username, data["clock"])]
+            self.commit_flag = 0
 
+            username = self.message_to_commit["username"]
+
+            if self.message_to_commit == self.current_proposal['msg']:
+                self.current_proposal = None
+        
+            # broadcast to all clients
+            self.broadcast_msg(self.message_to_commit['msg'])
+
+            del self.client_msg_dict[(username, self.message_to_commit["userclock"])]
             self.client_proc_msg_count[username] += 1
 
             # Print received message here
@@ -495,7 +531,7 @@ class Replica():
                 message["username"] = data["username"]
                 message["clock"] = self.rp_msg_count
                 message = json.dumps(message)
-                self.broadcast(message)
+                self.broadcast_msg(message)
                 self.rp_msg_count += 1
 
             # If the client is attempting to logout
@@ -515,7 +551,7 @@ class Replica():
                 message["username"] = username
                 message["clock"] = self.rp_msg_count
                 message = json.dumps(message)
-                self.broadcast(message)
+                self.broadcast_msg(message)
                 self.rp_msg_count += 1
 
                 s.close()
@@ -531,7 +567,7 @@ class Replica():
                 message["clock"] = self.rp_msg_count
 
                 message = json.dumps(message)
-                self.broadcast(message)
+                self.broadcast_msg(message)
                 self.rp_msg_count += 1
     
     def chat_server(self):
