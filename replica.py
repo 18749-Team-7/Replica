@@ -85,8 +85,6 @@ class Replica():
         self.chat_server()
 
 
-
-
     def set_host_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -152,7 +150,6 @@ class Replica():
                 data = data.decode("utf-8")
                 data = json.loads(data)
                 print(data)
-
 
                 if (data["type"] == "all_replicas" or data["type"] == "add_replicas" ):
                     self.members_mutex.acquire()
@@ -286,7 +283,7 @@ class Replica():
                     try:
                         s.send(replica_ckpt).encode("utf-8")
                     except:
-                        print('Replica ckeckpointing failed at:' + self.members[addr])
+                        print('Replica checkpointing failed at:' + self.members[addr])
 
     
                     threading.Thread(target=self.replica_receive_thread,args=(s, addr)).start()
@@ -428,11 +425,12 @@ class Replica():
                     assert vote['type'] == 'vote'
                     self.votes_mutex.acquire()
                     self.votes[addr] = vote
-                    self.votes_mutex.release()
 
                     if((len(self.votes) >= len(self.members)) and len(self.members)>0):
                         self.process_votes()
                         self.commit_flag = 1
+
+                    self.votes_mutex.release()
             except:
                 if((len(self.votes) >= len(self.members)) and len(self.members)>0):
                         self.process_votes()
@@ -477,7 +475,6 @@ class Replica():
         return
 
 
-    
     def client_msg_queue_proc(self):
         while True:
             # Quiescence control added here
