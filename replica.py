@@ -150,7 +150,7 @@ class Replica():
                 data,_ = s.recvfrom(BUF_SIZE)
                 data = data.decode("utf-8")
                 data = json.loads(data)
-                print(data)
+                print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
                 if (data["type"] == "all_replicas" or data["type"] == "add_replicas" ):
                     self.members_mutex.acquire()
@@ -169,6 +169,7 @@ class Replica():
                         self.get_connection_from_old_replicas()
 
                     else: # Already member, need to connect to new members
+                        time.sleep(1)
                         self.connect_to_new_replicas()
                         # data = MAGENTA + replica_ckpt['rp_msg_count'] + replica_ckpt['client_proc_msg_count'] + self.ip + RESET
 
@@ -188,14 +189,13 @@ class Replica():
 
                 # Print out the new membership set
                 members = [addr for addr in self.members] + [self.ip]
-                print("Updated Membership Set: " +str(members))
+                print(RED + "Updated Membership Set: " +str(members) + RESET)
 
             except KeyboardInterrupt:
                 s.close()
                 return
 
     def missing_connections(self):
-        print(self.members)
         for addr in self.members:
             if (self.members[addr] == None):
                 return True
@@ -217,12 +217,12 @@ class Replica():
                 self.members[addr] = conn
 
                 try:
-                    data = s.recv(BUF_SIZE)
+                    data = conn.recv(BUF_SIZE)
                     if data:
                         if not self.ckpt_received:
                             replica_ckpt = json.loads(data.decode("utf-8"))
 
-                            print(MAGENTA + 'Replica received {}'.format(replica_ckpt) + self.ip + RESET)
+                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
                             assert(replica_ckpt["type"] == "checkpoint")
                             self.rp_msg_count = replica_ckpt["rp_msg_count"]
@@ -234,8 +234,8 @@ class Replica():
                             checkpoint_msg["type"] = "checkpoint"
                             checkpoint_msg["rp_msg_count"] = self.rp_msg_count
                             checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
-                            print(MAGENTA + "Internal State: {}".format(self.checkpoint_msg) + RESET)
-                            print(MAGENTA + "Checkpoint {}: {}".format(addr, self.checkpoint_msg) + RESET)
+                            print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
+                            print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
                             
   
                 except KeyboardInterrupt:
@@ -247,7 +247,7 @@ class Replica():
                 threading.Thread(target=self.replica_receive_thread,args=(conn,addr), daemon=True).start()
 
             self.is_in_quiescence = False
-            print(YELLOW + 'Exiting Quiescence')
+            print(MAGENTA + "Quiescence end" + RESET)
      
         except KeyboardInterrupt:
             s.close()
@@ -264,7 +264,7 @@ class Replica():
         # Running Replica
 
         self.is_in_quiescence = True
-        print(YELLOW + 'Entering Quiescence at connect_to_new_replicas')
+        print(MAGENTA + "Quiescence start at connect_to_new_replicas" + RESET)
 
         for addr in self.members:
             if self.members[addr] == None:
@@ -285,9 +285,9 @@ class Replica():
                     self.checkpoint_mutex.release()
                     try:
                         s.send(replica_ckpt.encode("utf-8"))
-                        print('Replica checkpointing sent to:' + self.members[addr])
+                        print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
                     except:
-                        print('Replica checkpointing failed at:' + self.members[addr])
+                        print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
                     threading.Thread(target=self.replica_receive_thread,args=(s, addr)).start()
 
@@ -300,7 +300,7 @@ class Replica():
                     print(e)
 
         self.is_in_quiescence = False
-        print(YELLOW + 'Exiting Quiescence at connect_to_new_replicas')
+        print(MAGENTA + "Quiescence end at connect_to_new_replicas" + RESET)
 
 
     def replica_send_thread(self, s):
@@ -524,7 +524,7 @@ class Replica():
             self.client_proc_msg_count[username] += 1
 
             # Print received message here
-            print(YELLOW + "(RECV) -> {}".format(data) + RESET)
+            print(YELLOW + "(PROC) -> {}".format(data) + RESET)
             
             # Login Packet
             if (data["type"] == "login"):
