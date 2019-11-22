@@ -284,7 +284,7 @@ class Replica():
                     replica_ckpt = self.create_checkpoint()
                     self.checkpoint_mutex.release()
                     try:
-                        s.send(replica_ckpt.encode("utf-8"))
+                        s.send(json.dumps(replica_ckpt).encode("utf-8"))
                         print('Replica checkpointing sent to:' + self.members[addr])
                     except:
                         print('Replica checkpointing failed at:' + self.members[addr])
