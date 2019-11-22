@@ -413,31 +413,29 @@ class Replica():
 
 
     def replica_receive_thread(self, s, addr):
-        while True:
+        try:
+            while True:
+                try:
+                    connection.settimeout(2)
+                    vote = s.recv(BUF_SIZE)
+                    connection.settimeout(None)
 
-            try:
-                connection.settimeout(2)
-                vote = s.recv(BUF_SIZE)
-                connection.settimeout(None)
+                    if vote:
+                        vote = vote.decode("utf-8")
+                        assert vote['type'] == 'vote'
+                        self.votes_mutex.acquire()
+                        self.votes[addr] = vote
 
-                if vote:
-                    vote = vote.decode("utf-8")
-                    assert vote['type'] == 'vote'
-                    self.votes_mutex.acquire()
-                    self.votes[addr] = vote
+                        if((len(self.votes) >= len(self.members)) and len(self.members)>0):
+                            self.process_votes()
+                            self.commit_flag = 1
 
+                        self.votes_mutex.release()
+                except:
                     if((len(self.votes) >= len(self.members)) and len(self.members)>0):
-                        self.process_votes()
-                        self.commit_flag = 1
-
-                    self.votes_mutex.release()
-            except:
-                if((len(self.votes) >= len(self.members)) and len(self.members)>0):
-                        self.process_votes()
-                        self.commit_flag = 1
+                            self.process_votes()
+                            self.commit_flag = 1
                     
-                        
-
         except KeyboardInterrupt:
             s.close()
             return
