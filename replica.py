@@ -425,7 +425,8 @@ class Replica():
                     connection.settimeout(None)
 
                     if vote:
-                        vote = vote.decode("utf-8")
+                        print('Received Vote from:', addr)
+                        vote = json.loads(vote.decode("utf-8"))
                         assert vote['type'] == 'vote'
                         self.votes_mutex.acquire()
                         self.votes[addr] = vote
