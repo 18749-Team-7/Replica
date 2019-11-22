@@ -264,13 +264,14 @@ class Replica():
         # Running Replica
 
         self.is_in_quiescence = True
-        print(YELLOW + 'Entering Quiescence')
+        print(YELLOW + 'Entering Quiescence at connect_to_new_replicas')
 
         for addr in self.members:
             if self.members[addr] == None:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    print('Connecting to replica:', addr)
                     s.connect((addr, self.replica_port))
                     self.members_mutex.acquire()
                     self.members[addr] = s
@@ -299,7 +300,7 @@ class Replica():
                     print(e)
 
         self.is_in_quiescence = False
-        print(YELLOW + 'Exiting Quiescence')
+        print(YELLOW + 'Exiting Quiescence at connect_to_new_replicas')
 
 
     def replica_send_thread(self, s):
