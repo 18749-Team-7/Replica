@@ -73,6 +73,7 @@ class Replica():
         # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
+        print(YELLOW + 'Initialized Replica in Quiescence')
 
         while (not self.good_to_go):
             pass
@@ -83,8 +84,6 @@ class Replica():
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
         self.chat_server()
-
-        print(YELLOW + 'Initialized Replica in Quiescence')
 
 
     def set_host_ip(self):
@@ -166,7 +165,7 @@ class Replica():
                         self.members_mutex.acquire()
                         del self.members[self.ip]
                         self.members_mutex.release()
-                        print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET)
+                        # print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET)
                         self.get_connection_from_old_replicas()
 
                     else: # Already member, need to connect to new members
@@ -277,18 +276,18 @@ class Replica():
                     self.members[addr] = s
                     self.members_mutex.release()
                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
-                    print(s)
+                    # print(s)
 
                     # checkpointing
                     self.checkpoint_mutex.acquire()
                     replica_ckpt = self.create_checkpoint()
                     self.checkpoint_mutex.release()
                     try:
-                        s.send(replica_ckpt).encode("utf-8")
+                        s.send(replica_ckpt.encode("utf-8"))
+                        print('Replica checkpointing sent to:' + self.members[addr])
                     except:
                         print('Replica checkpointing failed at:' + self.members[addr])
 
-    
                     threading.Thread(target=self.replica_receive_thread,args=(s, addr)).start()
 
                 except KeyboardInterrupt:
