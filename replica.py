@@ -36,7 +36,7 @@ class Replica():
         self.replica_port = 20000
 
         # Queues and Dicts
-        self.rp_msg_count = 0
+        self.rp_msg_count = {}
         self.client_msg_queue = multiprocessing.Queue()
         self.manager = multiprocessing.Manager()
         self.client_msg_dict = self.manager.dict()
@@ -428,14 +428,14 @@ class Replica():
                         self.votes[addr] = vote
 
                         # if((len(self.votes) >= len(self.members)) -1 and len(self.members)>0):
-                        if((len(self.votes) >= len(self.members)):
+                        if (len(self.votes) >= len(self.members)):
                             self.process_votes()
                             self.commit_flag = 1
 
                         self.votes_mutex.release()
                 except:
                     time.sleep(1) # Random Hack: Hoping to sync with RM membership updates
-                    if(len(self.votes) >= len(self.members):
+                    if(len(self.votes) >= len(self.members)):
                         self.process_votes()
                         self.commit_flag = 1
                     
@@ -455,6 +455,11 @@ class Replica():
         self.members_mutex.release()
 
         # majority condition check
+        if self.current_proposal['msg']['clock'] == self.rp_msg_count[curr_mesg["username"]]:
+            count_votes[self.current_proposal['msg']['text']] += 1
+        else:
+            print('Call Ashwin')
+
         for vote in self.votes.values():
             if vote['msg']['clock'] == self.rp_msg_count[vote['msg']['username']]:
                 count_votes[vote['msg']['text']] += 1
@@ -502,7 +507,7 @@ class Replica():
                     self.rp_msg_count[curr_mesg["username"]] = 0
                     message["clock"] = 0
                     self.broadcast_msg(message)
-                    self.rp_msg_count += 1
+                    self.rp_msg_count[curr_mesg["username"]] += 1
                     continue
 
                 # If the client is attempting to logout
@@ -519,18 +524,17 @@ class Replica():
                     message = dict()
                     message["type"] = "logout_success"
                     message["username"] = username
-                    message["clock"] = self.rp_msg_count
+                    message["clock"] = self.rp_msg_count[curr_mesg["username"]]
                     self.broadcast_msg(message)
-                    self.rp_msg_count += 1
+                    self.rp_msg_count[curr_mesg["username"]] += 1
                     s.close()
-                    g
 
                 # If the client sends a normal chat message
                 elif (curr_mesg["type"] == "send_message"):                
                     self.current_proposal = dict()
                     self.current_proposal["type"] = "vote"
                     self.current_proposal["msg"] = curr_mesg
-                    self.current_proposal["replica_clock"] = self.rp_msg_count
+                    self.current_proposal["replica_clock"] = self.rp_msg_count[curr_mesg["username"]]
                     username = curr_mesg["username"]
 
             # If the message has already been processed
