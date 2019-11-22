@@ -84,6 +84,8 @@ class Replica():
         threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
         self.chat_server()
 
+        print(YELLOW + 'Initialized Replica in Quiescence')
+
 
     def set_host_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -164,7 +166,7 @@ class Replica():
                         self.members_mutex.acquire()
                         del self.members[self.ip]
                         self.members_mutex.release()
-                        print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET) 
+                        print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET)
                         self.get_connection_from_old_replicas()
 
                     else: # Already member, need to connect to new members
@@ -240,13 +242,13 @@ class Replica():
                 except KeyboardInterrupt:
                     s.close()
                     return
-
                 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_receive_thread,args=(conn,addr), daemon=True).start()
 
             self.is_in_quiescence = False
+            print(YELLOW + 'Exiting Quiescence')
      
         except KeyboardInterrupt:
             s.close()
@@ -263,6 +265,7 @@ class Replica():
         # Running Replica
 
         self.is_in_quiescence = True
+        print(YELLOW + 'Entering Quiescence')
 
         for addr in self.members:
             if self.members[addr] == None:
@@ -297,6 +300,7 @@ class Replica():
                     print(e)
 
         self.is_in_quiescence = False
+        print(YELLOW + 'Exiting Quiescence')
 
 
     def replica_send_thread(self, s):
