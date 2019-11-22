@@ -469,7 +469,10 @@ class Replica():
                 text_to_commit = key
 
         if (text_to_commit == None):
-            text_to_commit = count_votes.keys().sort()[0]            
+            text_to_commit = count_votes.keys().sort()[0]
+            print('Consensus Not Acheived. Proceeding to pick based on aplhabetical order!')
+        else:
+            print('Consensus Reached')           
 
         for vote in self.votes.values(): 
             if vote['msg']['text'] == text_to_commit:
