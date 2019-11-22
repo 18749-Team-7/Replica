@@ -399,7 +399,7 @@ class Replica():
         # send proposals to all other replicas 
         self.members_mutex.acquire()
         for addr in self.members:
-            if self.members[addr] != None:
+            if self.members[addr] != None and self.members[addr] != self.ip:
                 try: 
                     self.members[addr].send(self.current_proposal.encode('utf-8'))
                 except Exception as e:
@@ -495,11 +495,15 @@ class Replica():
 
             # If the message has already been processed
             if curr_mesg["clock"] < self.client_proc_msg_count[username]:
+                print("Discarded a previously processed message")
                 del self.client_msg_dict[(username, curr_mesg["userclock"])]
                 continue
 
             self.broadcast_votes()
 
+            if (len(self.members) == 1):
+                self.commit_flag = 1
+                
             while(self.commit_flag==0):
                 pass
             
