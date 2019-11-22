@@ -455,13 +455,13 @@ class Replica():
         self.members_mutex.release()
 
         # majority condition check
-        if self.current_proposal['msg']['clock'] == self.rp_msg_count[curr_mesg["username"]]:
+        if self.current_proposal['msg']['clock'] == self.client_proc_msg_count[self.current_proposal["username"]]:
             count_votes[self.current_proposal['msg']['text']] += 1
         else:
             print('Call Ashwin')
 
         for vote in self.votes.values():
-            if vote['msg']['clock'] == self.rp_msg_count[vote['msg']['username']]:
+            if vote['msg']['clock'] == self.client_proc_msg_count[vote['msg']['username']]:
                 count_votes[vote['msg']['text']] += 1
 
         for key in count_votes.keys():
@@ -510,7 +510,7 @@ class Replica():
                     self.rp_msg_count[curr_mesg["username"]] = 0
                     message["clock"] = 0
                     self.broadcast_msg(message)
-                    self.rp_msg_count[curr_mesg["username"]] += 1
+                    self.client_proc_msg_count[username]] += 1
                     continue
 
                 # If the client is attempting to logout
@@ -529,7 +529,7 @@ class Replica():
                     message["username"] = username
                     message["clock"] = self.rp_msg_count[curr_mesg["username"]]
                     self.broadcast_msg(message)
-                    self.rp_msg_count[curr_mesg["username"]] += 1
+                    self.client_proc_msg_count[username]] += 1
                     s.close()
 
                 # If the client sends a normal chat message
@@ -537,7 +537,7 @@ class Replica():
                     self.current_proposal = dict()
                     self.current_proposal["type"] = "vote"
                     self.current_proposal["msg"] = curr_mesg
-                    self.current_proposal["replica_clock"] = self.rp_msg_count[curr_mesg["username"]]
+                    self.current_proposal["replica_clock"] = self.client_proc_msg_count[username]]
                     username = curr_mesg["username"]
 
             # If the message has already been processed
