@@ -486,6 +486,7 @@ class Replica():
             # Pop a message from the queue
             if(self.current_proposal == None):
                 curr_mesg = self.client_msg_queue.get()
+                print('Poped a msg from queue')
                 self.current_proposal = dict()
                 self.current_proposal["type"] = "vote"
                 self.current_proposal["msg"] = curr_mesg
