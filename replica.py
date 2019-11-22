@@ -421,7 +421,7 @@ class Replica():
             while True:
                 if self.is_in_quiescence:
                     continue
-                
+
                 try:
                     connection.settimeout(2)
                     vote = s.recv(BUF_SIZE)
