@@ -419,6 +419,9 @@ class Replica():
     def replica_receive_thread(self, s, addr):
         try:
             while True:
+                if self.is_in_quiescence:
+                    continue
+                
                 try:
                     connection.settimeout(2)
                     vote = s.recv(BUF_SIZE)
