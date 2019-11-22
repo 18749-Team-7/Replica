@@ -284,7 +284,7 @@ class Replica():
                     replica_ckpt = self.create_checkpoint()
                     self.checkpoint_mutex.release()
                     try:
-                        s.send(json.dumps(replica_ckpt).encode("utf-8"))
+                        s.send(replica_ckpt.encode("utf-8"))
                         print('Replica checkpointing sent to:' + self.members[addr])
                     except:
                         print('Replica checkpointing failed at:' + self.members[addr])
@@ -395,13 +395,13 @@ class Replica():
 
     # Creates a checkpoint dictionary and returns it
     def create_checkpoint(self):
-        checkpoint_msg = {}
-        checkpoint_msg["type"] = "checkpoint"
-        checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-        checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
+        replica_ckpt = {}
+        replica_ckpt["type"] = "checkpoint"
+        replica_ckpt["rp_msg_count"] = self.rp_msg_count
+        replica_ckpt["client_proc_msg_count"] = self.client_proc_msg_count
 
-        checkpoint_msg = json.loads(checkpoint_msg)
-        return checkpoint_msg
+        replica_ckpt = json.dumps(replica_ckpt)
+        return replica_ckpt
 
     def broadcast_votes(self):
         # send proposals to all other replicas 
