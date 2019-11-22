@@ -44,7 +44,7 @@ class Replica():
         self.is_in_quiescence = True
         self.majority = 0
         self.votes = dict()
-        self.current_proposal =dict()
+        self.current_proposal = None
         self.message_to_commit = None
         self.commit_flag = 0
 
@@ -74,9 +74,6 @@ class Replica():
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
         print(YELLOW + 'Initialized Replica in Quiescence')
-
-        while (not self.good_to_go):
-            pass
 
         # Start the chat server
         print(GREEN + "Good to Go" + RESET)
@@ -237,7 +234,6 @@ class Replica():
                             print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
                             print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
                             
-  
                 except KeyboardInterrupt:
                     s.close()
                     return
@@ -248,6 +244,7 @@ class Replica():
 
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence end" + RESET)
+            self.members_mutex.release()
      
         except KeyboardInterrupt:
             s.close()
@@ -256,9 +253,7 @@ class Replica():
         except Exception as e:
             s.close()
             print(e)
-
-        self.members_mutex.release()
-        self.good_to_go = True
+            
 
     def connect_to_new_replicas(self):
         # Running Replica
