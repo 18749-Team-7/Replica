@@ -71,12 +71,10 @@ class Replica():
         # Start the RM thread
         # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
         # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
+        print(MAGENTA + 'Initialized Replica in Quiescence')
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
-        print(YELLOW + 'Initialized Replica in Quiescence')
-
         # Start the chat server
-        print(GREEN + "Good to Go" + RESET)
         # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
@@ -140,7 +138,6 @@ class Replica():
         except Exception as e:
             print(e)
             os.close(1)
-
 
         while True:
             try:
@@ -253,7 +250,7 @@ class Replica():
         except Exception as e:
             s.close()
             print(e)
-            
+
 
     def connect_to_new_replicas(self):
         # Running Replica
