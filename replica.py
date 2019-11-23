@@ -157,11 +157,11 @@ class Replica():
                     for replica_ip in data["ip_list"]:
                         if replica_ip in self.members:
                             print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
-                        else: 
+                        else:
                             self.members[replica_ip] = None
                     self.members_mutex.release()
 
-                    if self.ip in data["ip_list"]: 
+                    if self.ip in data["ip_list"]:
                         # If connected as new member --> get states from existing replicas.
                         self.members_mutex.acquire()
                         del self.members[self.ip]
@@ -210,7 +210,7 @@ class Replica():
 
     def connect_to_existing_replicas(self):
         """
-        As a newly joined replica, it needs to recieve checkpoint from the 
+        As a newly joined replica, it needs to recieve checkpoint from the
         exisiting replicas and must also wait for the other newly joined
         replicas to do the same.
         """
@@ -247,11 +247,11 @@ class Replica():
                             checkpoint_msg["client_processed_msg_count"] = self.client_processed_msg_count
                             print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
                             print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
-                            
+
                 except KeyboardInterrupt:
                     s.close()
                     return
-                
+
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_to_replica_receive_thread,args=(conn,addr), daemon=True).start()
@@ -259,7 +259,7 @@ class Replica():
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
-     
+
         except KeyboardInterrupt:
             s.close()
             return
@@ -324,7 +324,7 @@ class Replica():
                 return
             except Exception as e:
                 return
-           
+
     ###############################################
     # Chat client functions
     ###############################################
@@ -389,7 +389,7 @@ class Replica():
                 s.close()
                 return
         return
-    
+
     ###############################################
     # Consensus Functionalities
     ###############################################
@@ -408,7 +408,7 @@ class Replica():
         self.members_mutex.acquire()
         for addr in self.members:
             if self.members[addr] != None:
-                try: 
+                try:
                     self.members[addr].send(self.current_proposal.encode('utf-8'))
                 except Exception as e:
                     self.members[addr].close()
@@ -445,11 +445,12 @@ class Replica():
                     if(len(self.votes) >= len(self.members)):
                         self.process_votes()
                         self.commit_flag = True
-                 
+
         except KeyboardInterrupt:
             s.close()
             return
-        except Exception as e:           
+
+        except Exception as e:
             return
 
     def process_votes():
@@ -481,7 +482,7 @@ class Replica():
         else:
             print('Consensus Reached')
 
-        for vote in self.votes.values(): 
+        for vote in self.votes.values():
             if vote['msg']['text'] == text_to_commit:
                 message_to_commit = vote['msg']
                 break
@@ -570,7 +571,7 @@ class Replica():
                 print('Consensus Reached')
                 self.commit_flag = True
                 self.message_to_commit = current_msg
-                
+
             while(self.commit_flag is False):
                 pass
 
@@ -581,7 +582,7 @@ class Replica():
 
             if self.message_to_commit == self.current_proposal['msg']:
                 self.current_proposal = None
-        
+
             # broadcast to all clients
             self.broadcast_msg(self.message_to_commit)
 
