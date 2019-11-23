@@ -333,7 +333,7 @@ class Replica():
 
     def client_service_thread(self, s, addr):
         # When client first connects to server --> We expect the first packet
-        # to be a JSON login packet {"type": "login", "username":<username>}.
+        # to be a JSON login packet {"type": "login", "username":<username>, "clock":0}.
         login_data = s.recv(BUF_SIZE)
         login_data = login_data.decode("utf-8")
         login_data = json.loads(login_data)
@@ -374,7 +374,7 @@ class Replica():
         self.client_msg_dict[(username, login_data["clock"])] = login_data
         self.client_msg_queue.put(login_data)
 
-        # Receive, process, and retransmit chat messages from the client
+        # Receive, process, and retransmit chat messages from this client
         while True:
             try:
                 data = s.recv(BUF_SIZE)
@@ -423,23 +423,25 @@ class Replica():
 
                 try:
                     connection.settimeout(2)
-                    vote = s.recv(BUF_SIZE)
+                    data = s.recv(BUF_SIZE)
                     connection.settimeout(None)
 
-                    if vote:
-                        print('Received Vote from:', addr)
-                        vote = json.loads(vote.decode("utf-8"))
-                        assert vote['type'] == 'vote'
-                        self.votes_mutex.acquire()
-                        self.votes[addr] = vote
+                    if data:
+                        data = json.loads(data.decode("utf-8"))
+                        if data['type'] == 'vote':
+                            print('Received Vote from:', addr)
+                            self.votes_mutex.acquire()
+                            self.votes[addr] = data
 
-                        if (len(self.votes) >= len(self.members)):
-                            self.process_votes()
-                            self.commit_flag = True
+                            if (len(self.votes) >= len(self.members)):
+                                self.process_votes()
+                                self.commit_flag = True
 
-                        self.votes_mutex.release()
+                            self.votes_mutex.release()
+                        else:
+                            print('Non-vote data recieved: ', data)
                 except:
-                    time.sleep(1) # Random Hack: Hoping to sync with RM membership updates
+                    time.sleep(1)  # Random Hack: Hoping to sync with RM membership updates
                     if(len(self.votes) >= len(self.members)):
                         self.process_votes()
                         self.commit_flag = True
@@ -447,7 +449,7 @@ class Replica():
         except KeyboardInterrupt:
             s.close()
             return
-        except Exception as e:
+        except Exception as e:           
             return
 
     def process_votes():
@@ -473,11 +475,11 @@ class Replica():
             if (count_votes[key] >= self.quorum):
                 text_to_commit = key
 
-        if (text_to_commit == None):
+        if (text_to_commit is None):
             text_to_commit = count_votes.keys().sort()[0]
             print('Consensus Not Acheived. Proceeding to pick based on aplhabetical order!')
         else:
-            print('Consensus Reached')           
+            print('Consensus Reached')
 
         for vote in self.votes.values(): 
             if vote['msg']['text'] == text_to_commit:
@@ -510,7 +512,7 @@ class Replica():
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
                 continue
-            
+
             # Pop a message from the queue
             if(self.current_proposal is None):
                 current_msg = self.client_msg_queue.get()
@@ -521,10 +523,11 @@ class Replica():
                     message = dict()
                     message["type"] = "login_success"
                     message["username"] = current_msg["username"]
-                    self.rp_msg_count[current_msg["username"]] = 0
                     message["clock"] = 0
                     self.broadcast_msg(message)
-                    self.client_processed_msg_count[username]] += 1
+                    self.client_processed_msg_count[username] += 1
+                    self.rp_msg_count[current_msg["username"]] = 0
+                    # self.rp_msg_count += 1  # Old Approach. Doesnt make sense.
                     continue
 
                 # If the client is attempting to logout
@@ -547,7 +550,7 @@ class Replica():
                     s.close()
 
                 # If the client sends a normal chat message
-                elif (current_msg["type"] == "send_message"):                
+                elif (current_msg["type"] == "send_message"):
                     self.current_proposal = dict()
                     self.current_proposal["type"] = "vote"
                     self.current_proposal["msg"] = current_msg
