@@ -34,7 +34,7 @@ class Replica():
         self.replica_port = 20000
 
         # Queues and Dicts
-        self.rp_msg_count = 0
+        self.replica_processed_msg_count = 0  # Previously referred to as "rp_msg_count"
         self.client_msg_queue = multiprocessing.Queue()
         self.manager = multiprocessing.Manager()
         self.client_msg_dict = self.manager.dict()
@@ -52,15 +52,15 @@ class Replica():
 
         # Global variables
         self.users = dict()
-        self.users_mutex = threading.Lock() # Lock on users dict
+        self.users_mutex = threading.Lock()  # Lock on users dict
 
         self.msg_count = 0
-        self.count_mutex = threading.Lock() # Lock on message_count
+        self.count_mutex = threading.Lock()  # Lock on message_count
 
         self.members = dict()
-        self.members_mutex = threading.Lock() # Lock on replica members dict
-        self.checkpoint_mutex = threading.Lock() # Lock on the checkpoint creation
-        self.votes_mutex = threading.Lock() # Lock on votes
+        self.members_mutex = threading.Lock()  # Lock on replica members dict
+        self.checkpoint_mutex = threading.Lock()  # Lock on the checkpoint creation
+        self.votes_mutex = threading.Lock()  # Lock on votes
 
         # Start the heartbeat thread
         self.start_heartbeat(interval=heartbeat_frequency)
@@ -172,7 +172,7 @@ class Replica():
                         # If an exisiting member --> connect to new members.
                         time.sleep(1)
                         self.connect_to_new_replicas()
-                        # data = MAGENTA + replica_ckpt['rp_msg_count'] + replica_ckpt['client_processed_msg_count'] + self.ip + RESET
+                        # data = MAGENTA + replica_ckpt['replica_processed_msg_count'] + replica_ckpt['client_processed_msg_count'] + self.ip + RESET
 
                 elif (data["type"] == "del_replicas"):
                     self.members_mutex.acquire()
@@ -202,7 +202,7 @@ class Replica():
         """
         replica_ckpt = {}
         replica_ckpt["type"] = "checkpoint"
-        replica_ckpt["rp_msg_count"] = self.rp_msg_count
+        replica_ckpt["replica_processed_msg_count"] = self.replica_processed_msg_count
         replica_ckpt["client_processed_msg_count"] = self.client_processed_msg_count
 
         replica_ckpt = json.dumps(replica_ckpt)
@@ -236,14 +236,14 @@ class Replica():
                             assert(replica_ckpt["type"] == "checkpoint")
                             print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
-                            self.rp_msg_count = replica_ckpt["rp_msg_count"]
+                            self.replica_processed_msg_count = replica_ckpt["replica_processed_msg_count"]
                             self.client_processed_msg_count = replica_ckpt["client_processed_msg_count"]
                             self.ckpt_received = True
                         else:
                             assert(replica_ckpt["type"] == "checkpoint")
                             checkpoint_msg = {}
                             checkpoint_msg["type"] = "checkpoint"
-                            checkpoint_msg["rp_msg_count"] = self.rp_msg_count
+                            checkpoint_msg["replica_processed_msg_count"] = self.replica_processed_msg_count
                             checkpoint_msg["client_processed_msg_count"] = self.client_processed_msg_count
                             print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
                             print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
@@ -407,7 +407,7 @@ class Replica():
         # send proposals to all other replicas.
         self.members_mutex.acquire()
         for addr in self.members:
-            if self.members[addr] != None:
+            if self.members[addr] is not None:
                 try:
                     self.members[addr].send(self.current_proposal.encode('utf-8'))
                 except Exception as e:
@@ -487,6 +487,8 @@ class Replica():
                 message_to_commit = vote['msg']
                 break
 
+        # TODO: Add replica message count to message_to_commit?
+
         # reset votes
         self.votes = dict()
 
@@ -518,6 +520,12 @@ class Replica():
             if(self.current_proposal is None):
                 current_msg = self.client_msg_queue.get()
 
+                # If the message has already been processed
+                if current_msg["clock"] < self.client_processed_msg_count[username]:
+                    print("Discarded a previously processed message from:", username)
+                    del self.client_msg_dict[(username, current_msg["clock"])]
+                    continue
+
                 # Login Packet
                 if (current_msg["type"] == "login"):
                     # Send user joined message to all other users
@@ -526,9 +534,10 @@ class Replica():
                     message["username"] = current_msg["username"]
                     message["clock"] = 0
                     self.broadcast_msg(message)
-                    self.client_processed_msg_count[username] += 1
-                    self.rp_msg_count[current_msg["username"]] = 0
-                    # self.rp_msg_count += 1  # Old Approach. Doesnt make sense.
+                    # No need for the two lines below at this stage. This should only
+                    # be done if and when consensus is reached.
+                    # self.client_processed_msg_count[username] += 1
+                    # self.replica_processed_msg_count += 1
                     continue
 
                 # If the client is attempting to logout
@@ -545,9 +554,9 @@ class Replica():
                     message = dict()
                     message["type"] = "logout_success"
                     message["username"] = username
-                    message["clock"] = self.rp_msg_count[current_msg["username"]]
+                    message["clock"] = self.replica_processed_msg_count[current_msg["username"]]
                     self.broadcast_msg(message)
-                    self.client_processed_msg_count[username]] += 1
+                    # self.client_processed_msg_count[username]] += 1
                     s.close()
 
                 # If the client sends a normal chat message
@@ -557,12 +566,6 @@ class Replica():
                     self.current_proposal["msg"] = current_msg
                     self.current_proposal["replica_clock"] = self.client_processed_msg_count[username]]
                     username = current_msg["username"]
-
-            # If the message has already been processed
-            if current_msg["clock"] < self.client_processed_msg_count[username]:
-                print("Discarded a previously processed message at:", username)
-                del self.client_msg_dict[(username, current_msg["clock"])]
-                continue
 
             self.broadcast_votes()
 
