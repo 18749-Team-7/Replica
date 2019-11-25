@@ -413,9 +413,7 @@ class Replica():
         # send proposals to all other replicas.
         self.members_mutex.acquire()
         for addr in self.members:
-            if self.members[addr] is not None:
-                try:
-                    self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
+                                self.commit_flag = True
                 except Exception as e:
                     self.members[addr].close()
                     continue
@@ -464,43 +462,64 @@ class Replica():
             return
 
     def process_votes(self):
-        text_to_commit = None
-        message_to_commit = None
+        """
+        Collect proposals from all the replicas on which client message to process
+        and then set that message to self.message_to_commit.
+
+        This processing of votes happens individually in each replica.
+
+        TODO:
+            1. Need to account for the case where, all the votes from other replicas
+               are recieved and in turn invoke process_votes subroutine as usual. However,
+               assume that the self.current_proposal is not yet ready for that round
+               which is prepared in self.client_msg_processing_queue thread.
+
+               What happens now? In the current implementation, we are going to use the
+               old stale vote from the previous round and use it for consensus.
+        """
+        vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
         self.members_mutex.acquire()
         quorum = (len(self.members)/2) + 1
         self.members_mutex.release()
 
-        # majority condition check
-        if self.current_proposal['msg']['clock'] == self.client_processed_msg_count[self.current_proposal["username"]]:
-            count_votes[self.current_proposal['msg']['text']] += 1
+        # Collect votes
+        # First consider the replicas, self.current_proposal
+        if self.current_proposal['clock'] == self.client_processed_msg_count[self.current_proposal["username"]]:
+            count_votes[(self.current_proposal['username'], self.current_proposal['clock'])] += 1
         else:
-            print('Call Ashwin')
+            # Current hypothesis is that TCP should ensure this condition should never happen.
+            # If it does, call Ashwin.
+            raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
+        # Now, collect the proposals from rest of the replicas.
         for vote in self.votes.values():
-            if vote['msg']['clock'] == self.client_processed_msg_count[vote['msg']['username']]:
-                count_votes[vote['msg']['text']] += 1
+            if vote['clock'] == self.client_processed_msg_count[vote['username']]:
+                count_votes[(vote['username'], vote['clock'])] += 1
+            else:
+                raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
+        # Check for majority vote:
         for key in count_votes.keys():
             if (count_votes[key] >= quorum):
-                text_to_commit = key
+                vote_to_commit = key
 
-        if (text_to_commit is None):
-            text_to_commit = count_votes.keys().sort()[0]
-            print('Consensus Not Acheived. Proceeding to pick based on aplhabetical order!')
+        if (vote_to_commit is None):
+            # Vote Logic added by Ashwin. Reach out if you need clarity.
+            min_vote_clock = sorted(votes.keys(), key=lambda ele: ele[1])[0][1]
+            vote_to_commit = sorted(votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
+            print('Consensus reached by picking based on aplhabetical order of client name with lowest clock!')
         else:
             print('Consensus Reached')
 
-        for vote in self.votes.values():
-            if vote['msg']['text'] == text_to_commit:
-                message_to_commit = vote['msg']
+        for vote in self.votes.keys():
+            if vote['username'] == vote_to_commit[0] and vote['clock'] == vote_to_commit[1]:
+                self.message_to_commit = vote
                 break
 
-        # reset votes
+        # Reset votes
         self.votes = dict()
-
-        self.message_to_commit = message_to_commit
         return
 
     def client_msg_processing_queue(self):
@@ -550,11 +569,6 @@ class Replica():
             while(self.commit_flag is False):
                 pass
 
-            self.commit_flag = False
-
-            if self.message_to_commit == self.current_proposal:
-                self.current_proposal = None
-
             #########################################################
             ### Broadcast message to be committed to all clients. ###
             #########################################################
@@ -598,12 +612,18 @@ class Replica():
 
             # Broadcast to all clients
             self.broadcast_msg(broadcast_message_to_clients)
-            self.replica_processed_msg_count += 1
 
-            del self.client_msg_dict[(username, self.message_to_commit["clock"])]
+            # After the client message is processed and commited.
+            self.commit_flag = False
+            self.replica_processed_msg_count += 1
             self.client_processed_msg_count[username] += 1
 
-            # Print received message here
+            # Retain current proposal if it was not chosen by majority
+            # and propose the same proposal in the next round.
+            if self.message_to_commit == self.current_proposal:
+                self.current_proposal = None
+
+            del self.client_msg_dict[(username, self.message_to_commit["clock"])]
             # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
 
     def chat_server(self):
