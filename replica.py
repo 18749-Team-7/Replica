@@ -215,7 +215,7 @@ class Replica():
         replicas to do the same.
         """
 
-        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
+        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)  # IPv4, TCPIP
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.replica_port))
         s.listen(5)
@@ -254,7 +254,7 @@ class Replica():
 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
-                threading.Thread(target=self.replica_to_replica_receive_thread,args=(conn,addr), daemon=True).start()
+                threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
 
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence ended" + RESET)
@@ -332,6 +332,12 @@ class Replica():
         return hashlib.sha256(message + str(count)).hexdigest()
 
     def client_service_thread(self, s, addr):
+        """
+        Handles the initialization of a new client and starts
+        queuing the queries from the client.
+        Logout protocols are handled in client_msg_processing_queue.
+        """
+
         # When client first connects to server --> We expect the first packet
         # to be a JSON login packet {"type": "login", "username":<username>, "clock":0}.
         login_data = s.recv(BUF_SIZE)
@@ -385,7 +391,7 @@ class Replica():
                 self.client_msg_queue.put(data)
 
             except:
-                print(RED + "{} has disconnected".format(username) + RESET)
+                print(RED + "{} has disconnected without logging out!".format(username) + RESET)
                 s.close()
                 return
         return
@@ -396,7 +402,7 @@ class Replica():
 
     def broadcast_msg(self, message):
         # param message: dict
-        # send message to all clients
+        # sends message to all clients
         self.users_mutex.acquire()
         for _, s_client in self.users.items():
             s_client.send(json.dumps(message).encode("utf-8"))
@@ -409,13 +415,17 @@ class Replica():
         for addr in self.members:
             if self.members[addr] is not None:
                 try:
-                    self.members[addr].send(self.current_proposal.encode('utf-8'))
+                    self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception as e:
                     self.members[addr].close()
                     continue
         self.members_mutex.release()
 
     def replica_to_replica_receive_thread(self, s, addr):
+        """
+        TODO: How do we prevent a vote from a given replica at 't' from
+              overwriting the vote at 't-1'?
+        """
         try:
             while True:
                 if self.is_in_quiescence:
@@ -431,7 +441,7 @@ class Replica():
                         if data['type'] == 'vote':
                             print('Received Vote from:', addr)
                             self.votes_mutex.acquire()
-                            self.votes[addr] = data
+                            self.votes[addr] = data['client_msg']
 
                             if (len(self.votes) >= len(self.members)):
                                 self.process_votes()
@@ -453,13 +463,13 @@ class Replica():
         except Exception as e:
             return
 
-    def process_votes():
+    def process_votes(self):
         text_to_commit = None
         message_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
         self.members_mutex.acquire()
-        self.quorum = (len(self.members)/2) + 1
+        quorum = (len(self.members)/2) + 1
         self.members_mutex.release()
 
         # majority condition check
@@ -473,7 +483,7 @@ class Replica():
                 count_votes[vote['msg']['text']] += 1
 
         for key in count_votes.keys():
-            if (count_votes[key] >= self.quorum):
+            if (count_votes[key] >= quorum):
                 text_to_commit = key
 
         if (text_to_commit is None):
@@ -486,8 +496,6 @@ class Replica():
             if vote['msg']['text'] == text_to_commit:
                 message_to_commit = vote['msg']
                 break
-
-        # TODO: Add replica message count to message_to_commit?
 
         # reset votes
         self.votes = dict()
@@ -519,6 +527,7 @@ class Replica():
             # Pop a message from the queue
             if(self.current_proposal is None):
                 current_msg = self.client_msg_queue.get()
+                # current_msg --> {"type": "login/logout/send_message", "username":<username>, "clock":0}.
 
                 # If the message has already been processed
                 if current_msg["clock"] < self.client_processed_msg_count[username]:
@@ -526,68 +535,70 @@ class Replica():
                     del self.client_msg_dict[(username, current_msg["clock"])]
                     continue
 
-                # Login Packet
-                if (current_msg["type"] == "login"):
-                    # Send user joined message to all other users
-                    message = dict()
-                    message["type"] = "login_success"
-                    message["username"] = current_msg["username"]
-                    message["clock"] = 0
-                    self.broadcast_msg(message)
-                    # No need for the two lines below at this stage. This should only
-                    # be done if and when consensus is reached.
-                    # self.client_processed_msg_count[username] += 1
-                    # self.replica_processed_msg_count += 1
-                    continue
-
-                # If the client is attempting to logout
-                elif (current_msg["type"] == "logout"):
-                    s = self.users[username]
-                    # Delete the current client from the dictionary
-                    self.users_mutex.acquire()
-                    del self.users[username]
-                    self.users_mutex.release()
-                    del self.client_processed_msg_count[username]
-
-                    print(RED + "Logout from:", username + RESET)
-
-                    message = dict()
-                    message["type"] = "logout_success"
-                    message["username"] = username
-                    message["clock"] = self.replica_processed_msg_count[current_msg["username"]]
-                    self.broadcast_msg(message)
-                    # self.client_processed_msg_count[username]] += 1
-                    s.close()
-
-                # If the client sends a normal chat message
-                elif (current_msg["type"] == "send_message"):
-                    self.current_proposal = dict()
-                    self.current_proposal["type"] = "vote"
-                    self.current_proposal["msg"] = current_msg
-                    self.current_proposal["replica_clock"] = self.client_processed_msg_count[username]]
-                    username = current_msg["username"]
+                self.current_proposal = dict()
+                self.current_proposal["type"] = "vote"
+                self.current_proposal["client_msg"] = current_msg
 
             self.broadcast_votes()
 
             # No other replicas
             if (len(self.members) == 0):
                 print('Consensus Reached')
-                self.commit_flag = True
                 self.message_to_commit = current_msg
+                self.commit_flag = True
 
             while(self.commit_flag is False):
                 pass
 
             self.commit_flag = False
 
-            username = self.message_to_commit["username"]
-            print('Username:', username)
-
-            if self.message_to_commit == self.current_proposal['msg']:
+            if self.message_to_commit == self.current_proposal:
                 self.current_proposal = None
 
-            # broadcast to all clients
-            self.broadcast_msg(self.message_to_commit)
+            #########################################################
+            ### Broadcast message to be committed to all clients. ###
+            #########################################################
+
+            broadcast_message_to_clients = dict()
+            username = self.message_to_commit["username"]
+
+            # Login Packet
+            if (self.message_to_commit["type"] == "login"):
+                # Send user joined message to all other users
+                broadcast_message_to_clients["type"] = "login_success"
+                broadcast_message_to_clients["username"] = username
+                broadcast_message_to_clients["text"] = ''
+                broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+
+            # If the client is attempting to logout
+            elif (self.message_to_commit["type"] == "logout"):
+                s = self.users[username]
+                # Delete the current client from the dictionary
+                self.users_mutex.acquire()
+                del self.users[username]
+                self.users_mutex.release()
+                del self.client_processed_msg_count[username]
+                # TODO: Stop the client service thread for this particular client!
+
+                print(RED + "Logout from:", username + RESET)
+
+                broadcast_message_to_clients["type"] = "logout_success"
+                broadcast_message_to_clients["username"] = username
+                broadcast_message_to_clients["text"] = ''
+                broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+                self.broadcast_msg(message)
+                s.close()
+
+            # If the client sends a normal chat message
+            elif (self.message_to_commit["type"] == "send_message"):
+                broadcast_message_to_clients["type"] = "receive_message"
+                broadcast_message_to_clients["username"] = username
+                broadcast_message_to_clients["text"] = self.message_to_commit['text']
+                broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+
+            # Broadcast to all clients
+            self.broadcast_msg(broadcast_message_to_clients)
+            self.replica_processed_msg_count += 1
 
             del self.client_msg_dict[(username, self.message_to_commit["clock"])]
             self.client_processed_msg_count[username] += 1
@@ -635,7 +646,6 @@ if __name__ == '__main__':
 
     args = get_args()
     replica_obj = Replica(args.verbose, args.hb_freq)
-
     print("\nTotal time taken: " + str(time.time() - start_time) + " seconds")
 
     # Exit
