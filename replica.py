@@ -413,8 +413,10 @@ class Replica():
         # send proposals to all other replicas.
         self.members_mutex.acquire()
         for addr in self.members:
-                                self.commit_flag = True
-                except Exception as e:
+            if self.members[addr] is not None:
+                try:
+                    self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
+                except Exception:
                     self.members[addr].close()
                     continue
         self.members_mutex.release()
