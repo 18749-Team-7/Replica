@@ -60,9 +60,13 @@ class Replica():
         # Passive replication fields
         self.is_primary = False
         self.checkpoint_interval = None
-        self.quiesce_lock = threading.Lock()
-        self.is_in_quiescence = False
-        self.primary_ip = None
+        self.quiesce_lock = threading.Lock() # Lock for active replicas when creating and sending checkpoint
+        self.is_in_quiescence = False # Flag to allow printing of logs during quiescence
+        self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
+        self.log_file_name = "log.txt"
+
+        # self.primary_ip = None # This field should be unnecessary. We can listen to all other replicas all the time and make the assumption that only the 
+        # actual primary will send the checkpoint. 
 
         # Start the heartbeat thread
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
@@ -153,8 +157,8 @@ class Replica():
 
                     if self.ip == data["primary"]:
                         self.is_primary = True
-                    else:
-                        self.primary_ip = data["primary"]
+                    # else:
+                    #     self.primary_ip = data["primary"]
 
                     if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
                         self.members_mutex.acquire()
@@ -295,6 +299,10 @@ class Replica():
     # If we are the primary, broadcast a checkpoint out to all members every self.checkpoint_interval
     def checkpoint_send_thread(self):
         try:
+            # Wait until we actually receive a checkpoint interval
+            while(self.checkpoint_interval == None):
+                pass
+
             while(1):
                 if (self.is_primary):
                     #Quiesce while making and sending checkpoint.
@@ -339,18 +347,20 @@ class Replica():
     def checkpoint_receive_thread(self, s, addr):
         try:
             while(1):
-                if (self.is_primary == False) and (self.primary_ip != None):
-                    conn = self.members[self.primary_ip]
-                    data = conn.recv(BUF_SIZE)
+                if (self.is_primary == False): #and (self.primary_ip != None):
+                    # conn = self.members[self.primary_ip]
+                    data = s.recv(BUF_SIZE)
                     if data:
                         checkpoint_msg = json.loads(data.decode("utf-8"))
-
-                        print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
-
                         assert(checkpoint_msg["type"] == "checkpoint")
+
+                        self.checkpoint_lock.acquire()
+                        print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+        
                         self.main_msg_count = checkpoint_msg["main_msg_count"]
                         self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
                         self.ckpt_received = True
+                        self.checkpoint_lock.release()
 
         except KeyboardInterrupt:
             print(RED + "Checkpoint receive thread terminated by KeyboardInterrupt" + RESET)
@@ -429,28 +439,34 @@ class Replica():
 
         
         # Receive, process, and retransmit chat messages from the client
-        while True:
-            try:
-                data = s.recv(BUF_SIZE)
-                data = data.decode("utf-8")
-                data = json.loads(data)
+        try:
+            while True:
+                try:
+                    data = s.recv(BUF_SIZE)
+                    if data:
+                        data = data.decode("utf-8")
+                        data = json.loads(data)
 
-                while self.is_in_quiescence:
-                    print(GREEN + "Log: {}".format(data) + RESET)
+                        while self.is_in_quiescence: #Note that is_in_quiescence should only by true when we are the primary 
+                            print(GREEN + "Log: {}".format(data) + RESET)
 
-                self.client_msg_dict[(username, data["clock"])] = data
-                self.client_msg_queue.put(data)
+                        self.client_msg_dict[(username, data["clock"])] = data
+                        self.client_msg_queue.put(data)
 
-            except:
-                print(RED + "{} has disconnected".format(username) + RESET)
-                s.close()
-                return
-        return
+                except:
+                    print(RED + "{} has disconnected".format(username) + RESET)
+                    s.close()
+                    return
+        except KeyboardInterrupt:
+            print(RED + "Client msg receive thread terminated by KeyboardInterrupt" + RESET)
+            return
+
 
 
     def client_message_processing_thread(self):
         try:
             while True:
+                # Primary - process messages
                 if (self.is_primary):
                     self.quiesce_lock.acquire()
 
@@ -462,13 +478,13 @@ class Replica():
                     data = self.client_msg_queue.get()
                     username = data["username"]
 
-                    # If the message has already been processed
-                    if data["clock"] < self.per_client_msg_count[username]:
-                        del self.client_msg_dict[(username, data["clock"])]
-                        continue
-                    
                     del self.client_msg_dict[(username, data["clock"])]
 
+                    # If the message has already been processed
+                    # James: Is this check necessary in passive? Probably not I think.
+                    if data["clock"] < self.per_client_msg_count[username]:
+                        continue
+                    
                     self.per_client_msg_count[username] += 1
 
                     # Print received message here
@@ -522,6 +538,30 @@ class Replica():
                         self.main_msg_count += 1
 
                     self.quiesce_lock.release()
+
+                # Backup - constantly print out logs 
+                else:
+                    self.checkpoint_lock.acquire()
+                    log_list = []
+                    while(not self.client_msg_queue.empty()):
+                        data = self.client_msg_queue.get()
+
+                        # Ignore anything already processed as indicated by the checkpoint
+                        if data["clock"] < self.per_client_msg_count[username]:
+                            del self.client_msg_dict[(username, data["clock"])]
+                            continue
+
+                        log_list.append(data)
+                    
+                    # Write logs to log file. Use tail -f log.txt to print the logs.
+                    # This allows the logs to be printed in a separate window, so as to
+                    # not interfere with other message types
+                    with open(self.log_file_name, 'w') as f:
+                        for data in log_list:
+                            f.write(data)
+                            self.client_msg_queue.put(data)
+
+                    self.checkpoint_lock.release()
 
         except KeyboardInterrupt:
             print(RED + "Client msg processing thread terminated by KeyboardInterrupt" + RESET)
