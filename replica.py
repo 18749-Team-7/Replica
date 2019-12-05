@@ -62,6 +62,7 @@ class Replica():
         self.checkpoint_interval = None
         self.quiesce_lock = threading.Lock()
         self.is_in_quiescence = False
+        self.primary_ip = None
 
         # Start the heartbeat thread
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
@@ -152,6 +153,8 @@ class Replica():
 
                     if self.ip == data["primary"]:
                         self.is_primary = True
+                    else:
+                        self.primary_ip = data["primary"]
 
                     if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
                         self.members_mutex.acquire()
@@ -173,6 +176,10 @@ class Replica():
                             if (self.members[replica_ip] != None):
                                 self.members[replica_ip].close() # close the socket to the failed replica
                             del self.members[replica_ip]
+
+                            # Set primary_ip to None, if the primary was deleted
+                            if (self.primary_ip == replica_ip):
+                                self.primary_ip = None
                     self.members_mutex.release()
 
                     if self.ip == data["primary"]:
@@ -180,8 +187,9 @@ class Replica():
 
 
                 elif (data["type"] == "chkpt_freq"):
-                    new_frequency = data["time"]
-                    self.checkpoint_interval = time
+                    time_val = data["time"]
+                    self.checkpoint_interval = time_val
+                    print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
 
 
                 else:
@@ -295,6 +303,7 @@ class Replica():
                     self.is_in_quiescence = True
                     checkpoint_msg = self.create_checkpoint()
 
+                    self.members_mutex.acquire()
                     for addr in self.members:
                         if self.members[addr] == None:
                             # Ignore replicas we have yet to make a connection to
@@ -303,13 +312,15 @@ class Replica():
 
                         else:
                             try:
+                                s = self.members[addr]
                                 s.send(checkpoint_msg.encode("utf-8"))
 
                             except Exception as e:
                                 print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
                                 print(e)
 
-                            print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+                            print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+                    self.members_mutex.release()
 
                     self.is_in_quiescence = False
                     print(MAGENTA + "Quiescence end" + RESET)
@@ -328,7 +339,8 @@ class Replica():
     def checkpoint_receive_thread(self, s, addr):
         try:
             while(1):
-                if (self.is_primary == False):
+                if (self.is_primary == False) and (self.primary_ip != None):
+                    conn = self.members[self.primary_ip]
                     data = conn.recv(BUF_SIZE)
                     if data:
                         checkpoint_msg = json.loads(data.decode("utf-8"))
