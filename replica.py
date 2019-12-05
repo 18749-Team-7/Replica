@@ -35,12 +35,12 @@ class Replica():
         self.replica_port = 20000
 
         # Queues and Dicts
-        self.rp_msg_count = 0
+        self.main_msg_count = 0
         self.client_msg_queue = multiprocessing.Queue()
         self.manager = multiprocessing.Manager()
         self.client_msg_dict = self.manager.dict()
-        self.client_proc_msg_count = {}
-        self.is_in_quiescence = True
+        self.per_client_msg_count = {}
+        
 
         # Flag to indicate if checkpoint was done
         self.ckpt_received = False
@@ -57,26 +57,28 @@ class Replica():
         self.members = dict()
         self.members_mutex = threading.Lock() # Lock on replica members dict
 
+        # Passive replication fields
+        self.is_primary = False
+        self.checkpoint_interval = None
+        self.quiesce_lock = threading.Lock()
+        self.is_in_quiescence = False
+
         # Start the heartbeat thread
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
 
         # Start the RM thread
         # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
         # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
+        # It will also start checkpoint_receive_threads for each other replica
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
-
-        # while (not self.good_to_go):
-        #     pass
+        # Start the checkpoint_send_thread
+        threading.Thread(target=self.checkpoint_send_thread, daemon=True).start()
 
         # Start the chat server
-        print(MAGENTA + "Quiescence start" + RESET)
-        # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
-        threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
+        threading.Thread(target=self.client_message_processing_thread, daemon=True).start()
         self.chat_server()
-
-
 
 
     def set_host_ip(self):
@@ -120,12 +122,6 @@ class Replica():
     ###############################################
     # Replica Membership functions
     ###############################################
-    def print_membership_thread(self, interval):
-        while True:
-            members = [addr for addr in self.members] + [self.ip]
-            print("Current Membership Set:" +str(members))
-            time.sleep(interval)
-
     def rm_thread(self):
         # Use port 15000 for RM
         try:
@@ -154,6 +150,9 @@ class Replica():
                             self.members[replica_ip] = None
                     self.members_mutex.release()
 
+                    if self.ip == data["primary"]:
+                        self.is_primary = True
+
                     if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
                         self.members_mutex.acquire()
                         del self.members[self.ip]
@@ -162,9 +161,8 @@ class Replica():
                         self.get_connection_from_old_replicas()
 
                     else: # Already member, need to connect to new members
-                        time.sleep(1)
+                        time.sleep(1) # delay to allow new members to start listening for connection
                         self.connect_to_new_replicas()
-                        # data = MAGENTA + replica_ckpt['rp_msg_count'] + replica_ckpt['client_proc_msg_count'] + self.ip + RESET
 
                 elif (data["type"] == "del_replicas"):
                     self.members_mutex.acquire()
@@ -176,6 +174,15 @@ class Replica():
                                 self.members[replica_ip].close() # close the socket to the failed replica
                             del self.members[replica_ip]
                     self.members_mutex.release()
+
+                    if self.ip == data["primary"]:
+                        self.is_primary = True
+
+
+                elif (data["type"] == "chkpt_freq"):
+                    new_frequency = data["time"]
+                    self.checkpoint_interval = time
+
 
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
@@ -196,7 +203,6 @@ class Replica():
 
     def get_connection_from_old_replicas(self):
         # For a new Replica
-
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.replica_port))
@@ -209,43 +215,9 @@ class Replica():
                 addr = addr[0]
                 self.members[addr] = conn
 
-                try:
-                    data = conn.recv(BUF_SIZE)
-                    if data:
-                        if not self.ckpt_received:
-                            replica_ckpt = json.loads(data.decode("utf-8"))
-
-                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
-
-                            assert(replica_ckpt["type"] == "checkpoint")
-                            self.rp_msg_count = replica_ckpt["rp_msg_count"]
-                            self.client_proc_msg_count = replica_ckpt["client_proc_msg_count"]
-                            self.ckpt_received = True
-                        else:
-                            assert(replica_ckpt["type"] == "checkpoint")
-                            checkpoint_msg = {}
-                            checkpoint_msg["type"] = "checkpoint"
-                            checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-                            checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
-                            print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
-                            print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
-                            
-  
-                except KeyboardInterrupt:
-                    s.close()
-                    return
-
-                
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
-                threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
 
-            self.is_in_quiescence = False
-            print(MAGENTA + "Quiescence end" + RESET)
-     
-        except KeyboardInterrupt:
-            s.close()
-            return
+                threading.Thread(target=self.checkpoint_receive_thread, args=(conn, addr, )).start()
 
         except Exception as e:
             s.close()
@@ -254,76 +226,136 @@ class Replica():
         self.members_mutex.release()
         self.good_to_go = True
 
+    # Connect to any new replicas. If we are the primary, also send a checkpoint to each new replica
     def connect_to_new_replicas(self):
         # Running Replica
+        if (self.is_primary):
+            self.quiesce_lock.acquire()
+            self.is_in_quiescence = True
+            print(MAGENTA + "Quiescence start: sending initial checkpoint to new members" + RESET)
 
-        self.is_in_quiescence = True
-        print(MAGENTA + "Quiescence start" + RESET)
-
-        for addr in self.members:
-            if self.members[addr] == None:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                try:
-                    s.connect((addr, self.replica_port))
-                    self.members_mutex.acquire()
-                    self.members[addr] = s
-                    self.members_mutex.release()
-                    print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
-                    # print(s)
-
-                    # checkpointing
-                    replica_ckpt = self.create_checkpoint()
-
+            for addr in self.members:
+                if self.members[addr] == None:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     try:
-                        s.send(replica_ckpt.encode("utf-8"))
-                    except:
-                        print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+                        s.connect((addr, self.replica_port))
+                        self.members_mutex.acquire()
+                        self.members[addr] = s
+                        self.members_mutex.release()
+                        print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
-                    print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
-                    # threading.Thread(target=self.replica_send_thread,args=(s, )).start()
-                    threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
+                        # checkpointing
+                        replica_ckpt = self.create_checkpoint()
 
-                except KeyboardInterrupt:
-                    s.close()
-                    return
+                        try:
+                            s.send(replica_ckpt.encode("utf-8"))
+                        except:
+                            print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
-                except Exception as e:
-                    s.close()
-                    print(e)
+                        print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
-        self.is_in_quiescence = False
-        print(MAGENTA + "Quiescence end" + RESET)
+                    except Exception as e:
+                        s.close()
+                        print(e)
 
+            self.is_in_quiescence = False
+            print(MAGENTA + "Quiescence end" + RESET)
+            self.quiesce_lock.release()
 
-    def replica_send_thread(self, s):
-        replica_to_replica_count = 0
-        while True:
-            try:
-                data = YELLOW + "Ping from " + self.ip + " | " + str(replica_to_replica_count) + RESET
-                s.send(data.encode("utf-8"))
-                replica_to_replica_count = replica_to_replica_count + 1
-                time.sleep(1)
+        else:
+            for addr in self.members:
+                if self.members[addr] == None:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    try:
+                        s.connect((addr, self.replica_port))
+                        self.members_mutex.acquire()
+                        self.members[addr] = s
+                        self.members_mutex.release()
+                        print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
-            except KeyboardInterrupt:
-                s.close()
-                return
-            except Exception as e:
-                return
+                    except Exception as e:
+                        s.close()
+                        print(e)
 
-    def replica_receive_thread(self, s):
-        while True:
-            try:
-                data = s.recv(BUF_SIZE)
-                data = data.decode("utf-8")
-                if data:
-                    print(data)
-            except KeyboardInterrupt:
-                s.close()
-                return
-            except Exception as e:
-                return
     
+    ###############################################
+    # Passive Replication functions
+    ###############################################
+
+    # If we are the primary, broadcast a checkpoint out to all members every self.checkpoint_interval
+    def checkpoint_send_thread(self):
+        try:
+            while(1):
+                if (self.is_primary):
+                    #Quiesce while making and sending checkpoint.
+                    self.quiesce_lock.acquire()
+                    print(MAGENTA + "Quiescence start: sending regular checkpoint" + RESET)
+                    self.is_in_quiescence = True
+                    checkpoint_msg = self.create_checkpoint()
+
+                    for addr in self.members:
+                        if self.members[addr] == None:
+                            # Ignore replicas we have yet to make a connection to
+                            # This may be the case if we send a checkpoint immediately after a membership change
+                            pass
+
+                        else:
+                            try:
+                                s.send(checkpoint_msg.encode("utf-8"))
+
+                            except Exception as e:
+                                print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+                                print(e)
+
+                            print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+
+                    self.is_in_quiescence = False
+                    print(MAGENTA + "Quiescence end" + RESET)
+                    self.quiesce_lock.release()
+
+                    # Sleep for checkpoint_interval
+                    time.sleep(self.checkpoint_interval)
+
+        except KeyboardInterrupt:
+            print(RED + "Checkpoint send thread terminated by KeyboardInterrupt" + RESET)
+            return
+
+    # If we are a backup, receive checkpoint and update state. 
+    # One of these threads is created for every member, primary or not.
+    # We assume only the primary will send a checkpoint message, while the backups remain silent.
+    def checkpoint_receive_thread(self, s, addr):
+        try:
+            while(1):
+                if (self.is_primary == False):
+                    data = conn.recv(BUF_SIZE)
+                    if data:
+                        checkpoint_msg = json.loads(data.decode("utf-8"))
+
+                        print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+
+                        assert(checkpoint_msg["type"] == "checkpoint")
+                        self.main_msg_count = checkpoint_msg["main_msg_count"]
+                        self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
+                        self.ckpt_received = True
+
+        except KeyboardInterrupt:
+            print(RED + "Checkpoint receive thread terminated by KeyboardInterrupt" + RESET)
+            return
+
+    # Creates a checkpoint message
+    def create_checkpoint(self):
+        assert(self.is_in_quiescence)
+        checkpoint_msg = {}
+        checkpoint_msg["type"] = "checkpoint"
+        checkpoint_msg["main_msg_count"] = self.main_msg_count
+        checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+
+        checkpoint_msg = json.dumps(checkpoint_msg)
+        return checkpoint_msg
+
+
     ###############################################
     # Chat client functions
     ###############################################
@@ -338,7 +370,7 @@ class Replica():
     def get_hash(self, message, count):
         return hashlib.sha256(message + str(count)).hexdigest()
 
-    def client_service_thread(self, s, addr):
+    def client_message_receiving_thread(self, s, addr):
         # Client has connected to the server
         # We expect the first packet from the client to be a JSON login packet {"type": "login", "username":<username>}
         login_data = s.recv(BUF_SIZE)
@@ -373,8 +405,8 @@ class Replica():
         self.users[username] = s
         self.users_mutex.release()
 
-        if username not in self.client_proc_msg_count:
-            self.client_proc_msg_count[username] = 0
+        if username not in self.per_client_msg_count:
+            self.per_client_msg_count[username] = 0
 
         # Insert job in client queue
         while self.is_in_quiescence:
@@ -403,109 +435,87 @@ class Replica():
                 return
         return
 
-    # Creates a checkpoint dictionary and returns it
-    def create_checkpoint(self):
-        checkpoint_msg = {}
-        checkpoint_msg["type"] = "checkpoint"
-        checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-        checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
 
-        checkpoint_msg = json.dumps(checkpoint_msg)
-        return checkpoint_msg
-    
-    # We pop the first message out of the queue and broadcast the vote to all replicas
-    def broadcast_vote(self, message):
-        pass
+    def client_message_processing_thread(self):
+        try:
+            while True:
+                if (self.is_primary):
+                    self.quiesce_lock.acquire()
 
-    # Votes are read by the replica_receive_thread and place them into a set. 
-    # Wait.
-    # Once the set has been filled with enough votes (num replicas - 1), we commit the message and reset the set.
-    def process_votes(self):
-        pass
+                    # Get job from the queue and process it
+                    if self.client_msg_queue.empty():
+                        continue
+                    
+                    # Pop a message from the queue
+                    data = self.client_msg_queue.get()
+                    username = data["username"]
 
-    # Send message to client
-    # Update client counts
-    # Update global count
-    def commit_message(self):
-        pass
+                    # If the message has already been processed
+                    if data["clock"] < self.per_client_msg_count[username]:
+                        del self.client_msg_dict[(username, data["clock"])]
+                        continue
+                    
+                    del self.client_msg_dict[(username, data["clock"])]
 
+                    self.per_client_msg_count[username] += 1
 
-    def client_msg_queue_proc(self):
-        while True:
-            # Quiescence control added here
-            while self.is_in_quiescence:
-                continue
+                    # Print received message here
+                    print(YELLOW + "(PROC) -> {}".format(data) + RESET)
+                    
+                    # Login Packet
+                    if (data["type"] == "login"):
+                        # Send user joined message to all other users
+                        message = dict()
+                        message["type"] = "login_success"
+                        message["username"] = data["username"]
+                        message["clock"] = self.main_msg_count
+                        message = json.dumps(message)
+                        self.broadcast(message)
+                        self.main_msg_count += 1
 
-            # Get job from the queue and process it
-            if self.client_msg_queue.empty():
-                continue
-            
-            # Pop a message from the queue
-            data = self.client_msg_queue.get()
-            username = data["username"]
+                    # If the client is attempting to logout
+                    if (data["type"] == "logout"):
+                        s = self.users[username]
+                        # Delete the current client from the dictionary
+                        self.users_mutex.acquire()
+                        del self.users[username]
+                        self.users_mutex.release()
 
-            # If the message has already been processed
-            if data["clock"] < self.client_proc_msg_count[username]:
-                del self.client_msg_dict[(username, data["clock"])]
-                continue
+                        del self.per_client_msg_count[username]
 
-            # TODO: Perform Lightweight gossip here, and check if you have the 
-            # message in the dictionary, if not wait for it and then process it.
-            
-            del self.client_msg_dict[(username, data["clock"])]
+                        print(RED + "Logout from:", username + RESET)
 
-            self.client_proc_msg_count[username] += 1
+                        message = dict()
+                        message["type"] = "logout_success"
+                        message["username"] = username
+                        message["clock"] = self.main_msg_count
+                        message = json.dumps(message)
+                        self.broadcast(message)
+                        self.main_msg_count += 1
 
-            # Print received message here
-            print(YELLOW + "(PROC) -> {}".format(data) + RESET)
-            
-            # Login Packet
-            if (data["type"] == "login"):
-                # Send user joined message to all other users
-                message = dict()
-                message["type"] = "login_success"
-                message["username"] = data["username"]
-                message["clock"] = self.rp_msg_count
-                message = json.dumps(message)
-                self.broadcast(message)
-                self.rp_msg_count += 1
+                        s.close()
 
-            # If the client is attempting to logout
-            if (data["type"] == "logout"):
-                s = self.users[username]
-                # Delete the current client from the dictionary
-                self.users_mutex.acquire()
-                del self.users[username]
-                self.users_mutex.release()
+                    # If the client sends a normal chat message
+                    elif (data["type"] == "send_message"):
+                        chat_message = data["text"]
 
-                del self.client_proc_msg_count[username]
+                        message = dict()
+                        message["type"] = "receive_message"
+                        message["username"] = username
+                        message["text"] = chat_message
+                        message["clock"] = self.main_msg_count
 
-                print(RED + "Logout from:", username + RESET)
+                        message = json.dumps(message)
+                        self.broadcast(message)
+                        self.main_msg_count += 1
 
-                message = dict()
-                message["type"] = "logout_success"
-                message["username"] = username
-                message["clock"] = self.rp_msg_count
-                message = json.dumps(message)
-                self.broadcast(message)
-                self.rp_msg_count += 1
+                    self.quiesce_lock.release()
 
-                s.close()
+        except KeyboardInterrupt:
+            print(RED + "Client msg processing thread terminated by KeyboardInterrupt" + RESET)
+            return
 
-            # If the client sends a normal chat message
-            elif (data["type"] == "send_message"):
-                chat_message = data["text"]
-
-                message = dict()
-                message["type"] = "receive_message"
-                message["username"] = username
-                message["text"] = chat_message
-                message["clock"] = self.rp_msg_count
-
-                message = json.dumps(message)
-                self.broadcast(message)
-                self.rp_msg_count += 1
-    
+        
     def chat_server(self):
         # Open listening socket of Replica
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
@@ -519,7 +529,7 @@ class Replica():
                 conn, addr = s.accept()
                 print("Accepted new client")
                 # Initiate a client listening thread
-                threading.Thread(target=self.client_service_thread, args=(conn, addr), daemon=True).start()
+                threading.Thread(target=self.client_message_receiving_thread, args=(conn, addr), daemon=True).start()
 
         except KeyboardInterrupt:
             self.users_mutex.acquire()
