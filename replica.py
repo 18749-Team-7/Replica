@@ -540,6 +540,9 @@ class Replica():
                     self.quiesce_lock.release()
 
                 # Backup - constantly print out logs 
+                # Since we cannot iterate through the queue without removing elements, we get() until the queue is empty, while
+                # recording each queued message in a list. 
+                # At the end, we output everything in the list, then put() everything back into the queue.
                 else:
                     self.checkpoint_lock.acquire()
                     log_list = []
