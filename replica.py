@@ -60,6 +60,7 @@ class Replica():
         self.members = dict()
         self.members_mutex = threading.Lock()  # Lock on replica members dict
         self.checkpoint_mutex = threading.Lock()  # Lock on the checkpoint creation
+        self.quiescence_lock = threading.Lock()
         self.votes_mutex = threading.Lock()  # Lock on votes
 
         # Start the heartbeat thread
@@ -273,6 +274,7 @@ class Replica():
         As a replica already part of the network, it needs to
         connect to the new replicas and send them a checkpoint.
         """
+        self.quiescence_lock.acquire()
         self.is_in_quiescence = True
         print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
 
@@ -308,6 +310,7 @@ class Replica():
                     print(e)
 
         self.is_in_quiescence = False
+        self.quiescence_lock.release()
         print(MAGENTA + "Quiescence ended: Connected to all new replicas." + RESET)
 
     def replica_send_thread(self, s):
@@ -462,6 +465,8 @@ class Replica():
                         self.process_votes()
                         self.commit_flag = True
                     self.votes_mutex.release()
+                    s.close()
+                    return
 
         except KeyboardInterrupt:
             s.close()
@@ -494,6 +499,11 @@ class Replica():
         quorum = (len(self.members)//2) + 1
         self.members_mutex.release()
         print(quorum)
+
+        while(self.current_proposal is None):
+            pass
+
+        print("done waiting for current proposal")
 
         # Collect votes
         # First consider the replicas, self.current_proposal
@@ -553,12 +563,14 @@ class Replica():
             go to step 1 else broadcast the same current proposal in the next round too.
         """
         while True:
+            self.quiescence_lock.acquire()
             while self.is_in_quiescence:
                 # We dont process any messages.
                 continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
+                self.quiescence_lock.release()
                 continue
 
             # Pop a message from the queue
@@ -570,6 +582,7 @@ class Replica():
                 if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
                     print("Discarded a previously processed message from:", current_msg['username'])
                     del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
+                    self.quiescence_lock.release()
                     continue
 
                 self.current_proposal = dict()
@@ -645,6 +658,7 @@ class Replica():
 
             del self.client_msg_dict[(username, self.message_to_commit["clock"])]
             # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
+        self.quiescence_lock.release()
 
     def chat_server(self):
         # Open listening socket of Replica
