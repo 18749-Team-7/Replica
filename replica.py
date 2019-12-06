@@ -472,6 +472,7 @@ class Replica():
                 try:
                     data = s.recv(BUF_SIZE)
                     if data:
+                        self.checkpoint_lock.acquire()
                         data = data.decode("utf-8")
                         data = json.loads(data)
 
@@ -483,6 +484,11 @@ class Replica():
                         self.client_msg_queue.put(data)
                         self.size_of_log = self.size_of_log + 1
                         print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+
+                        with open(self.log_file_name, 'a') as f:
+                            f.write(str(data))
+                            
+                        self.checkpoint_lock.release()
 
                 except:
                     print(RED + "{} has disconnected".format(username) + RESET)
