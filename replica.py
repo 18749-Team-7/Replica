@@ -268,6 +268,8 @@ class Replica():
 
                         print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
+                        threading.Thread(target=self.checkpoint_receive_thread, args=(s, addr, )).start()
+
                     except Exception as e:
                         s.close()
                         print(e)
