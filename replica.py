@@ -64,6 +64,7 @@ class Replica():
         self.is_in_quiescence = False # Flag to allow printing of logs during quiescence
         self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
         self.log_file_name = "log.txt"
+        self.size_of_log = 0
 
         # self.primary_ip = None # This field should be unnecessary. We can listen to all other replicas all the time and make the assumption that only the 
         # actual primary will send the checkpoint. 
@@ -349,18 +350,21 @@ class Replica():
             while(1):
                 if (self.is_primary == False): #and (self.primary_ip != None):
                     # conn = self.members[self.primary_ip]
-                    data = s.recv(BUF_SIZE)
-                    if data:
-                        checkpoint_msg = json.loads(data.decode("utf-8"))
-                        assert(checkpoint_msg["type"] == "checkpoint")
+                    try:
+                        data = s.recv(BUF_SIZE)
+                        if data:
+                            checkpoint_msg = json.loads(data.decode("utf-8"))
+                            assert(checkpoint_msg["type"] == "checkpoint")
 
-                        self.checkpoint_lock.acquire()
-                        print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
-        
-                        self.main_msg_count = checkpoint_msg["main_msg_count"]
-                        self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
-                        self.ckpt_received = True
-                        self.checkpoint_lock.release()
+                            self.checkpoint_lock.acquire()
+                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+            
+                            self.main_msg_count = checkpoint_msg["main_msg_count"]
+                            self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
+                            self.ckpt_received = True
+                            self.checkpoint_lock.release()
+                    except:
+                        return
 
         except KeyboardInterrupt:
             print(RED + "Checkpoint receive thread terminated by KeyboardInterrupt" + RESET)
@@ -562,7 +566,11 @@ class Replica():
                     # Write logs to log file. Use tail -f log.txt to print the logs.
                     # This allows the logs to be printed in a separate window, so as to
                     # not interfere with other message types
-                    print(GREEN + "Size of Log:" + str(len(log_list)) + RESET)
+                    new_log_size = len(log_list)
+                    if (new_log_size != self.size_of_log):
+                        print(GREEN + "Size of Log:" + str(len(log_list)) + RESET)
+                    self.size_of_log = new_log_size
+                    
                     with open(self.log_file_name, 'w') as f:
                         for data in log_list:
                             f.write(str(data))
