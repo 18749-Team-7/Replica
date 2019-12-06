@@ -362,6 +362,29 @@ class Replica():
                             self.main_msg_count = checkpoint_msg["main_msg_count"]
                             self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
                             self.ckpt_received = True
+
+                            log_list = []
+                            while(not self.client_msg_queue.empty()):
+                                data = self.client_msg_queue.get()
+                                username = data["username"]
+                                # Ignore anything already processed as indicated by the checkpoint
+                                if data["clock"] < self.per_client_msg_count[username]:
+                                    del self.client_msg_dict[(username, data["clock"])]
+                                    continue
+
+                                log_list.append(data)
+                            
+                            # Write logs to log file. Use tail -f log.txt to print the logs.
+                            # This allows the logs to be printed in a separate window, so as to
+                            # not interfere with other message types
+                            self.size_of_log = len(log_list)
+                            print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+                            
+                            with open(self.log_file_name, 'w') as f:
+                                for data in log_list:
+                                    f.write(str(data))
+                                    self.client_msg_queue.put(data)
+
                             self.checkpoint_lock.release()
                     except:
                         return
@@ -455,8 +478,10 @@ class Replica():
                         while self.is_in_quiescence: #Note that is_in_quiescence should only by true when we are the primary 
                             print(GREEN + "Log: {}".format(data) + RESET)
 
+
                         self.client_msg_dict[(username, data["clock"])] = data
                         self.client_msg_queue.put(data)
+                        self.size_of_log = self.size_of_log + 1
 
                 except:
                     print(RED + "{} has disconnected".format(username) + RESET)
@@ -546,38 +571,6 @@ class Replica():
 
                     self.quiesce_lock.release()
 
-                # Backup - constantly print out logs 
-                # Since we cannot iterate through the queue without removing elements, we get() until the queue is empty, while
-                # recording each queued message in a list. 
-                # At the end, we output everything in the list, then put() everything back into the queue.
-                else:
-                    self.checkpoint_lock.acquire()
-                    log_list = []
-                    while(not self.client_msg_queue.empty()):
-                        data = self.client_msg_queue.get()
-                        username = data["username"]
-                        # Ignore anything already processed as indicated by the checkpoint
-                        if data["clock"] < self.per_client_msg_count[username]:
-                            del self.client_msg_dict[(username, data["clock"])]
-                            continue
-
-                        log_list.append(data)
-                    
-                    # Write logs to log file. Use tail -f log.txt to print the logs.
-                    # This allows the logs to be printed in a separate window, so as to
-                    # not interfere with other message types
-                    new_log_size = len(log_list)
-                    if (new_log_size != self.size_of_log):
-                        print(GREEN + "Size of Log:" + str(len(log_list)) + RESET)
-                    self.size_of_log = new_log_size
-                    
-                    with open(self.log_file_name, 'w') as f:
-                        for data in log_list:
-                            f.write(str(data))
-                            self.client_msg_queue.put(data)
-
-                    self.checkpoint_lock.release()
-                    time.sleep(0.01)
 
         except KeyboardInterrupt:
             print(RED + "Client msg processing thread terminated by KeyboardInterrupt" + RESET)
