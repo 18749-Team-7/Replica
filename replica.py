@@ -417,6 +417,7 @@ class Replica():
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception:
+                    print('Exception while boardcasting')
                     self.members[addr].close()
                     continue
         self.members_mutex.release()
@@ -432,9 +433,10 @@ class Replica():
                     continue
 
                 try:
-                    connection.settimeout(2)
+                    connection = self.members[addr]
+
+                    # connection.settimeout(10)
                     data = s.recv(BUF_SIZE)
-                    connection.settimeout(None)
 
                     if data:
                         data = json.loads(data.decode("utf-8"))
@@ -444,17 +446,22 @@ class Replica():
                             self.votes[addr] = data['client_msg']
 
                             if (len(self.votes) >= len(self.members)):
+                                print(self.votes)
                                 self.process_votes()
                                 self.commit_flag = True
 
                             self.votes_mutex.release()
                         else:
                             print('Non-vote data recieved: ', data)
-                except:
+
+                except Exception as e:
+                    print(e)
                     time.sleep(1)  # Random Hack: Hoping to sync with RM membership updates
+                    self.votes_mutex.acquire()
                     if(len(self.votes) >= len(self.members)):
                         self.process_votes()
                         self.commit_flag = True
+                    self.votes_mutex.release()
 
         except KeyboardInterrupt:
             s.close()
@@ -479,22 +486,26 @@ class Replica():
                What happens now? In the current implementation, we are going to use the
                old stale vote from the previous round and use it for consensus.
         """
+        print('Processing votes')
         vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
         self.members_mutex.acquire()
-        quorum = (len(self.members)/2) + 1
+        quorum = (len(self.members)//2) + 1
         self.members_mutex.release()
+        print(quorum)
 
         # Collect votes
         # First consider the replicas, self.current_proposal
-        if self.current_proposal['clock'] == self.client_processed_msg_count[self.current_proposal["username"]]:
-            count_votes[(self.current_proposal['username'], self.current_proposal['clock'])] += 1
+        print(self.current_proposal)
+        if self.current_proposal["client_msg"]['clock'] == self.client_processed_msg_count[self.current_proposal["client_msg"]["username"]]:
+            count_votes[(self.current_proposal["client_msg"]['username'], self.current_proposal["client_msg"]['clock'])] += 1
         else:
             # Current hypothesis is that TCP should ensure this condition should never happen.
             # If it does, call Ashwin.
             raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
+        print(self.votes)
         # Now, collect the proposals from rest of the replicas.
         for vote in self.votes.values():
             if vote['clock'] == self.client_processed_msg_count[vote['username']]:
@@ -502,6 +513,7 @@ class Replica():
             else:
                 raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
+        print('count_votes:', count_votes)
         # Check for majority vote:
         for key in count_votes.keys():
             if (count_votes[key] >= quorum):
@@ -513,12 +525,14 @@ class Replica():
             vote_to_commit = sorted(votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
             print('Consensus reached by picking based on aplhabetical order of client name with lowest clock!')
         else:
-            print('Consensus Reached')
+            print('Consensus Reached by Majority')
 
         for vote in self.votes.keys():
             if vote['username'] == vote_to_commit[0] and vote['clock'] == vote_to_commit[1]:
                 self.message_to_commit = vote
                 break
+
+        print('message to commit':, self.message_to_commit)
 
         # Reset votes
         self.votes = dict()
@@ -553,7 +567,7 @@ class Replica():
                 # If the message has already been processed
                 if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
                     print("Discarded a previously processed message from:", current_msg['username'])
-                    del self.client_msg_dict[(usercurrent_msg['username'], current_msg["clock"])]
+                    del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
                     continue
 
                 self.current_proposal = dict()
