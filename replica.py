@@ -527,12 +527,14 @@ class Replica():
         else:
             print('Consensus Reached by Majority')
 
-        for vote in self.votes.keys():
+        for vote in self.votes.values():
             if vote['username'] == vote_to_commit[0] and vote['clock'] == vote_to_commit[1]:
                 self.message_to_commit = vote
                 break
 
-        print('message to commit':, self.message_to_commit)
+        print('vote to commit', vote_to_commit)
+
+        print('message to commit:', self.message_to_commit)
 
         # Reset votes
         self.votes = dict()
