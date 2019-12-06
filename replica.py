@@ -290,6 +290,8 @@ class Replica():
                         self.members_mutex.release()
                         print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
+                        threading.Thread(target=self.checkpoint_receive_thread, args=(s, addr, )).start()
+
                     except Exception as e:
                         s.close()
                         print(e)
