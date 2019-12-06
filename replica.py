@@ -593,6 +593,7 @@ class Replica():
                 self.users_mutex.acquire()
                 del self.users[username]
                 self.users_mutex.release()
+                self.client_processed_msg_count[username] += 1
                 del self.client_processed_msg_count[username]
                 # TODO: Stop the client service thread for this particular client!
 
@@ -602,7 +603,7 @@ class Replica():
                 broadcast_message_to_clients["username"] = username
                 broadcast_message_to_clients["text"] = ''
                 broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
-                self.broadcast_msg(message)
+                self.broadcast_msg(broadcast_message_to_clients)
                 s.close()
 
             # If the client sends a normal chat message
@@ -618,11 +619,12 @@ class Replica():
             # After the client message is processed and commited.
             self.commit_flag = False
             self.replica_processed_msg_count += 1
-            self.client_processed_msg_count[username] += 1
+            if broadcast_message_to_clients["type"] != "logout_success":
+                self.client_processed_msg_count[username] += 1
 
             # Retain current proposal if it was not chosen by majority
             # and propose the same proposal in the next round.
-            if self.message_to_commit == self.current_proposal:
+            if self.message_to_commit == self.current_proposal["client_msg"]:
                 self.current_proposal = None
 
             del self.client_msg_dict[(username, self.message_to_commit["clock"])]
