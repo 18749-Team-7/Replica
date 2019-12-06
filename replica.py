@@ -182,8 +182,8 @@ class Replica():
                             del self.members[replica_ip]
 
                             # Set primary_ip to None, if the primary was deleted
-                            if (self.primary_ip == replica_ip):
-                                self.primary_ip = None
+                            # if (self.primary_ip == replica_ip):
+                            #     self.primary_ip = None
                     self.members_mutex.release()
 
                     if self.ip == data["primary"]:
@@ -472,6 +472,7 @@ class Replica():
 
                     # Get job from the queue and process it
                     if self.client_msg_queue.empty():
+                        self.quiesce_lock.release()
                         continue
                     
                     # Pop a message from the queue
@@ -483,6 +484,7 @@ class Replica():
                     # If the message has already been processed
                     # James: Is this check necessary in passive? Probably not I think.
                     if data["clock"] < self.per_client_msg_count[username]:
+                        self.quiesce_lock.release()
                         continue
                     
                     self.per_client_msg_count[username] += 1
