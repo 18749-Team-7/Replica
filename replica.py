@@ -397,6 +397,7 @@ class Replica():
         # We expect the first packet from the client to be a JSON login packet {"type": "login", "username":<username>}
         login_data = s.recv(BUF_SIZE)
         login_data = login_data.decode("utf-8")
+        print(CYAN + str(login_data) + RESET)
         login_data = json.loads(login_data)
 
         if (login_data["type"] != "login"): # Wrong packet type
@@ -550,7 +551,7 @@ class Replica():
                     log_list = []
                     while(not self.client_msg_queue.empty()):
                         data = self.client_msg_queue.get()
-
+                        username = data["username"]
                         # Ignore anything already processed as indicated by the checkpoint
                         if data["clock"] < self.per_client_msg_count[username]:
                             del self.client_msg_dict[(username, data["clock"])]
@@ -561,12 +562,14 @@ class Replica():
                     # Write logs to log file. Use tail -f log.txt to print the logs.
                     # This allows the logs to be printed in a separate window, so as to
                     # not interfere with other message types
+                    print(GREEN + "Size of Log:" + str(len(log_list)) + RESET)
                     with open(self.log_file_name, 'w') as f:
                         for data in log_list:
-                            f.write(data)
+                            f.write(str(data))
                             self.client_msg_queue.put(data)
 
                     self.checkpoint_lock.release()
+                    time.sleep(0.01)
 
         except KeyboardInterrupt:
             print(RED + "Client msg processing thread terminated by KeyboardInterrupt" + RESET)

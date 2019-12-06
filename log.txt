@@ -1,0 +1,1 @@
+{'type': 'login', 'clock': 0, 'username': 'na'}{'type': 'send_message', 'text': 'is 175', 'clock': 176, 'username': 'nish'}{'type': 'send_message', 'text': 'is 1', 'clock': 2, 'username': 'na'}{'type': 'send_message', 'text': 'it 2', 'clock': 3, 'username': 'na'}
