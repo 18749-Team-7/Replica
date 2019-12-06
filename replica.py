@@ -482,12 +482,14 @@ class Replica():
 
                         self.client_msg_dict[(username, data["clock"])] = data
                         self.client_msg_queue.put(data)
-                        self.size_of_log = self.size_of_log + 1
-                        print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
 
                         with open(self.log_file_name, 'a') as f:
                             f.write(str(data))
-                            
+
+                        if (not self.is_primary):
+                            self.size_of_log = self.size_of_log + 1
+                            print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+
                         self.checkpoint_lock.release()
 
                 except:
