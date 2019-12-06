@@ -369,6 +369,17 @@ class Replica():
                             while(not self.client_msg_queue.empty()):
                                 data = self.client_msg_queue.get()
                                 username = data["username"]
+
+                                # Solves the issue of the 
+                                if username not in self.per_client_msg_count:
+                                    # Delete user from the user dictionary
+                                    if username in self.users:
+                                        self.users_mutex.acquire()
+                                        del self.users[username]
+                                        self.users_mutex.release()
+                                    del self.client_msg_dict[(username, data["clock"])]
+                                    continue
+
                                 # Ignore anything already processed as indicated by the checkpoint
                                 if data["clock"] < self.per_client_msg_count[username]:
                                     del self.client_msg_dict[(username, data["clock"])]
