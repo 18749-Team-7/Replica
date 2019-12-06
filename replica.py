@@ -297,6 +297,35 @@ class Replica():
     # Passive Replication functions
     ###############################################
 
+    def send_checkpoint(self):
+        self.quiesce_lock.acquire()
+        print(MAGENTA + "Quiescence start: sending checkpoint" + RESET)
+        self.is_in_quiescence = True
+        checkpoint_msg = self.create_checkpoint()
+
+        self.members_mutex.acquire()
+        for addr in self.members:
+            if self.members[addr] == None:
+                # Ignore replicas we have yet to make a connection to
+                # This may be the case if we send a checkpoint immediately after a membership change
+                pass
+
+            else:
+                try:
+                    s = self.members[addr]
+                    s.send(checkpoint_msg.encode("utf-8"))
+
+                except Exception as e:
+                    print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+                    print(e)
+
+                print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+        self.members_mutex.release()
+
+        self.is_in_quiescence = False
+        print(MAGENTA + "Quiescence end" + RESET)
+        self.quiesce_lock.release()
+
     # If we are the primary, broadcast a checkpoint out to all members every self.checkpoint_interval
     def checkpoint_send_thread(self):
         try:
@@ -306,34 +335,7 @@ class Replica():
 
             while(1):
                 if (self.is_primary):
-                    #Quiesce while making and sending checkpoint.
-                    self.quiesce_lock.acquire()
-                    print(MAGENTA + "Quiescence start: sending regular checkpoint" + RESET)
-                    self.is_in_quiescence = True
-                    checkpoint_msg = self.create_checkpoint()
-
-                    self.members_mutex.acquire()
-                    for addr in self.members:
-                        if self.members[addr] == None:
-                            # Ignore replicas we have yet to make a connection to
-                            # This may be the case if we send a checkpoint immediately after a membership change
-                            pass
-
-                        else:
-                            try:
-                                s = self.members[addr]
-                                s.send(checkpoint_msg.encode("utf-8"))
-
-                            except Exception as e:
-                                print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
-                                print(e)
-
-                            print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
-                    self.members_mutex.release()
-
-                    self.is_in_quiescence = False
-                    print(MAGENTA + "Quiescence end" + RESET)
-                    self.quiesce_lock.release()
+                    self.send_checkpoint()
 
                     # Sleep for checkpoint_interval
                     time.sleep(self.checkpoint_interval)
@@ -520,11 +522,11 @@ class Replica():
 
                     del self.client_msg_dict[(username, data["clock"])]
 
-                    # If the message has already been processed
-                    # James: Is this check necessary in passive? Probably not I think.
-                    if data["clock"] < self.per_client_msg_count[username]:
-                        self.quiesce_lock.release()
-                        continue
+                    # # If the message has already been processed
+                    # # James: Is this check necessary in passive? Probably not I think.
+                    # if data["clock"] < self.per_client_msg_count[username]:
+                    #     self.quiesce_lock.release()
+                    #     continue
                     
                     self.per_client_msg_count[username] += 1
 
