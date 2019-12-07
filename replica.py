@@ -622,6 +622,7 @@ class Replica():
                 broadcast_message_to_clients["type"] = "login_success"
                 broadcast_message_to_clients["username"] = username
                 broadcast_message_to_clients["text"] = ''
+                self.client_processed_msg_count[username] += 1
                 broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
 
             # If the client is attempting to logout
