@@ -423,6 +423,7 @@ class Replica():
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception:
+                    self.members_mutex.release()
                     print('Exception while boardcasting')
                     self.members[addr].close()
                     continue
