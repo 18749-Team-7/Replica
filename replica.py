@@ -597,9 +597,9 @@ class Replica():
 
             # No other replicas
             if (len(self.members) == 0):
-                #print('Consensus Reached')
-                print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
+                #print('Consensus Reached')  
                 self.message_to_commit = current_msg
+                print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
                 self.commit_flag = True
 
             while(self.commit_flag is False):
