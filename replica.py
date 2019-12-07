@@ -447,7 +447,7 @@ class Replica():
                     if data:
                         data = json.loads(data.decode("utf-8"))
                         if data['type'] == 'vote':
-                            print('Received Vote from:', addr)
+                            #print('Received Vote from:', addr)
                             self.votes_mutex.acquire()
                             self.votes[addr] = data['client_msg']
 
@@ -463,10 +463,10 @@ class Replica():
                 except Exception as e:
                     print(e)
                     time.sleep(1)  # Random Hack: Hoping to sync with RM membership updates
-                    self.votes_mutex.acquire()
-                    if(len(self.votes) >= len(self.members)):
-                        self.process_votes()
-                        self.commit_flag = True
+                    # self.votes_mutex.acquire()
+                    # if(len(self.votes) >= len(self.members)):
+                    #     self.process_votes()
+                    #     self.commit_flag = True
                     self.votes_mutex.release()
                     s.close()
                     return
@@ -494,23 +494,23 @@ class Replica():
                What happens now? In the current implementation, we are going to use the
                old stale vote from the previous round and use it for consensus.
         """
-        print('Processing votes')
+        #print('Processing votes')
         vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
         self.members_mutex.acquire()
         quorum = (len(self.members)//2) + 1
         self.members_mutex.release()
-        print(quorum)
+        #print(quorum)
 
         while(self.current_proposal is None):
             pass
 
-        print("done waiting for current proposal")
+        #print("done waiting for current proposal")
 
         # Collect votes
         # First consider the replicas, self.current_proposal
-        print(self.current_proposal)
+        #print(self.current_proposal)
         if self.current_proposal["client_msg"]['clock'] == self.client_processed_msg_count[self.current_proposal["client_msg"]["username"]]:
             count_votes[(self.current_proposal["client_msg"]['username'], self.current_proposal["client_msg"]['clock'])] += 1
         else:
@@ -518,7 +518,7 @@ class Replica():
             # If it does, call Ashwin.
             raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
-        print(self.votes)
+        #print(self.votes)
         # Now, collect the proposals from rest of the replicas.
         for vote in self.votes.values():
             if vote['clock'] == self.client_processed_msg_count[vote['username']]:
@@ -526,7 +526,7 @@ class Replica():
             else:
                 raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
-        print('count_votes:', count_votes)
+        #print('count_votes:', count_votes)
         # Check for majority vote:
         for key in count_votes.keys():
             if (count_votes[key] >= quorum):
@@ -536,18 +536,19 @@ class Replica():
             # Vote Logic added by Ashwin. Reach out if you need clarity.
             min_vote_clock = sorted(votes.keys(), key=lambda ele: ele[1])[0][1]
             vote_to_commit = sorted(votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
-            print('Consensus reached by picking based on aplhabetical order of client name with lowest clock!')
+            print(YELLOW + 'Consensus reached by picking based on alphabetical order of client name with lowest clock!' + RESET)
         else:
-            print('Consensus Reached by Majority')
+            pass
+            #print('Consensus Reached by Majority')
 
         for vote in self.votes.values():
             if vote['username'] == vote_to_commit[0] and vote['clock'] == vote_to_commit[1]:
                 self.message_to_commit = vote
                 break
 
-        print('vote to commit', vote_to_commit)
+        #print('vote to commit', vote_to_commit)
 
-        print('message to commit:', self.message_to_commit)
+        print(GREEN + 'message to commit:', self.message_to_commit+ RESET)
 
         # Reset votes
         self.votes = dict()
@@ -596,7 +597,8 @@ class Replica():
 
             # No other replicas
             if (len(self.members) == 0):
-                print('Consensus Reached')
+                #print('Consensus Reached')
+                print(GREEN + 'message to commit:', self.message_to_commit+ RESET)
                 self.message_to_commit = current_msg
                 self.commit_flag = True
 
