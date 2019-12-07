@@ -303,10 +303,12 @@ class Replica():
 
                 except KeyboardInterrupt:
                     s.close()
+                    self.quiescence_lock.release()
                     return
 
                 except Exception as e:
                     s.close()
+                    self.quiescence_lock.release()
                     print(e)
 
         self.is_in_quiescence = False
@@ -656,9 +658,9 @@ class Replica():
             if self.message_to_commit == self.current_proposal["client_msg"]:
                 self.current_proposal = None
 
-            del self.client_msg_dict[(username, self.message_to_commit["clock"])]
+            #del self.client_msg_dict[(username, self.message_to_commit["clock"])]
             # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
-        self.quiescence_lock.release()
+            self.quiescence_lock.release()
 
     def chat_server(self):
         # Open listening socket of Replica
