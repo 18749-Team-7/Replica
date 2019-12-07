@@ -474,12 +474,10 @@ class Replica():
                     return
 
         except KeyboardInterrupt:
-            self.votes_mutex.release()
             s.close()
             return
 
         except Exception as e:
-            self.votes_mutex.release()
             return
         
 
