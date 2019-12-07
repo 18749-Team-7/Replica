@@ -570,7 +570,7 @@ class Replica():
             self.quiescence_lock.acquire()
             while self.is_in_quiescence:
                 # We dont process any messages.
-                continue
+                pass
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
