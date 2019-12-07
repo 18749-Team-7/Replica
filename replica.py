@@ -437,9 +437,9 @@ class Replica():
         """
         try:
             while True:
-                self.quiescence_lock.acquire()
+                #self.quiescence_lock.acquire()
                 if self.is_in_quiescence:
-                    self.quiescence_lock.release()
+                    #self.quiescence_lock.release()
                     continue
                 
                 try:
