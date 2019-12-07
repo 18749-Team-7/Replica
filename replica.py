@@ -256,8 +256,9 @@ class Replica():
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
-
+            self.quiescence_lock.acquire()
             self.is_in_quiescence = False
+            self.quiescence_lock.release()
             print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
 
@@ -274,8 +275,9 @@ class Replica():
         As a replica already part of the network, it needs to
         connect to the new replicas and send them a checkpoint.
         """
-        #self.quiescence_lock.acquire()
+        self.quiescence_lock.acquire()
         self.is_in_quiescence = True
+    
         print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
 
         for addr in self.members:
@@ -302,18 +304,18 @@ class Replica():
                     threading.Thread(target=self.replica_to_replica_receive_thread, args=(s, addr)).start()
 
                 except KeyboardInterrupt:
-                    #self.quiescence_lock.release()
+                    self.quiescence_lock.release()
                     s.close()
                     return
 
                 except Exception as e:
                     print(e)
-                    #self.quiescence_lock.release()
+                    self.quiescence_lock.release()
                     s.close()
                     
 
         self.is_in_quiescence = False
-        #self.quiescence_lock.release()
+        self.quiescence_lock.release()
         print(MAGENTA + "Quiescence ended: Connected to all new replicas." + RESET)
 
     def replica_send_thread(self, s):
@@ -435,9 +437,11 @@ class Replica():
         """
         try:
             while True:
+                self.quiescence_lock.acquire()
                 if self.is_in_quiescence:
+                    self.quiescence_lock.release()
                     continue
-
+                
                 try:
                     connection = self.members[addr]
 
@@ -567,14 +571,14 @@ class Replica():
             go to step 1 else broadcast the same current proposal in the next round too.
         """
         while True:
-            #self.quiescence_lock.acquire()
-            while self.is_in_quiescence:
-                # We dont process any messages.
-                pass
+            self.quiescence_lock.acquire()
+            # while self.is_in_quiescence:
+            #     # We dont process any messages.
+            #     pass
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
-                #self.quiescence_lock.release()
+                self.quiescence_lock.release()
                 continue
 
             # Pop a message from the queue
@@ -586,7 +590,7 @@ class Replica():
                 if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
                     print("Discarded a previously processed message from:", current_msg['username'])
                     del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
-                    #self.quiescence_lock.release()
+                    self.quiescence_lock.release()
                     continue
 
                 self.current_proposal = dict()
@@ -663,7 +667,7 @@ class Replica():
 
             #del self.client_msg_dict[(username, self.message_to_commit["clock"])]
             # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
-            #self.quiescence_lock.release()
+            self.quiescence_lock.release()
 
     def chat_server(self):
         # Open listening socket of Replica
