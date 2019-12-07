@@ -548,7 +548,7 @@ class Replica():
 
         #print('vote to commit', vote_to_commit)
 
-        print(GREEN + 'message to commit:', self.message_to_commit+ RESET)
+        print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
 
         # Reset votes
         self.votes = dict()
@@ -598,7 +598,7 @@ class Replica():
             # No other replicas
             if (len(self.members) == 0):
                 #print('Consensus Reached')
-                print(GREEN + 'message to commit:', self.message_to_commit+ RESET)
+                print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
                 self.message_to_commit = current_msg
                 self.commit_flag = True
 
