@@ -307,9 +307,10 @@ class Replica():
                     return
 
                 except Exception as e:
+                    print(e)
                     s.close()
                     self.quiescence_lock.release()
-                    print(e)
+                    
 
         self.is_in_quiescence = False
         self.quiescence_lock.release()
