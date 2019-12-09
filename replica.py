@@ -25,7 +25,7 @@ class Replica():
     Main Man
     """
 
-    def __init__(self, verbose=True):
+    def __init__(self, verbose=True, heartbeat_frequency=1):
         self.set_host_ip()
         self.ip = self.host_ip
         self.verbose = verbose
@@ -58,7 +58,7 @@ class Replica():
         self.members_mutex = threading.Lock() # Lock on replica members dict
 
         # Start the heartbeat thread
-        self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
+        self.start_heartbeat(interval=heartbeat_frequency)  # TODO: Don't hardcode these values. Interval = 1 sec
 
         # Start the RM thread
         # Upon startup, this Replica will receive the add_replicas packet with its own IP.
@@ -537,6 +537,7 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-v', '--verbose', help="Print every chat message", action='store_true')
+    parser.add_argument('-hbf', '--hb_freq', help="Heartbeat Frequency", type=int, default=1)
 
     args = parser.parse_args()
     return args
@@ -545,7 +546,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     args = get_args()
-    replica_obj = Replica(args.verbose)
+    replica_obj = Replica(args.verbose, args.hb_freq)
 
     print("\nTotal time taken: " + str(time.time() - start_time) + " seconds")
 
