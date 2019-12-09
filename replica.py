@@ -8,6 +8,7 @@ import argparse
 import threading
 import multiprocessing
 from collections import defaultdict
+import time
 
 BUF_SIZE = 1024
 
@@ -145,53 +146,61 @@ class Replica():
         except Exception as e:
             print(e)
             os.close(1)
-
+        #print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
+        time_start = time.time()
+        start_flag = True
         while True:
             try:
+                print("start_time" + str(time.time()))
                 data, _ = s.recvfrom(BUF_SIZE)
-                data = data.decode("utf-8")
-                data = json.loads(data)
-                print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
+                print(time.time())
+                if ((time.time() - time_start  > 3) or start_flag):
+                    print(GREEN + "processing" + RESET)
+                    time_start = time.time()
+                    start_flag = False
+                    data = data.decode("utf-8")
+                    data = json.loads(data)
+                    print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
-                if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
-                    self.members_mutex.acquire()
-                    for replica_ip in data["ip_list"]:
-                        if replica_ip in self.members:
-                            print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
-                        else:
-                            self.members[replica_ip] = None
-                    self.members_mutex.release()
-
-                    if self.ip in data["ip_list"]:
-                        # If connected as new member --> get states from existing replicas.
+                    if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
                         self.members_mutex.acquire()
-                        del self.members[self.ip]
+                        for replica_ip in data["ip_list"]:
+                            if replica_ip in self.members:
+                                print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
+                            else:
+                                self.members[replica_ip] = None
                         self.members_mutex.release()
-                        self.connect_to_existing_replicas()
+
+                        if self.ip in data["ip_list"]:
+                            # If connected as new member --> get states from existing replicas.
+                            self.members_mutex.acquire()
+                            del self.members[self.ip]
+                            self.members_mutex.release()
+                            self.connect_to_existing_replicas()
+
+                        else:
+                            # If an exisiting member --> connect to new members.
+                            time.sleep(1)
+                            self.connect_to_new_replicas()
+                            # data = MAGENTA + replica_ckpt['replica_processed_msg_count'] + replica_ckpt['client_processed_msg_count'] + self.ip + RESET
+
+                    elif (data["type"] == "del_replicas"):
+                        self.members_mutex.acquire()
+                        for replica_ip in data["ip_list"]:
+                            if replica_ip not in self.members:
+                                print(RED + "Received del_replicas ip that was not in membership set" + RESET)
+                            else:
+                                if (self.members[replica_ip] is not None):
+                                    self.members[replica_ip].close() # close the socket to the failed replica
+                                del self.members[replica_ip]
+                        self.members_mutex.release()
 
                     else:
-                        # If an exisiting member --> connect to new members.
-                        time.sleep(1)
-                        self.connect_to_new_replicas()
-                        # data = MAGENTA + replica_ckpt['replica_processed_msg_count'] + replica_ckpt['client_processed_msg_count'] + self.ip + RESET
+                        print(RED + "Received bad packet type from RM" + RESET)
 
-                elif (data["type"] == "del_replicas"):
-                    self.members_mutex.acquire()
-                    for replica_ip in data["ip_list"]:
-                        if replica_ip not in self.members:
-                            print(RED + "Received del_replicas ip that was not in membership set" + RESET)
-                        else:
-                            if (self.members[replica_ip] is not None):
-                                self.members[replica_ip].close() # close the socket to the failed replica
-                            del self.members[replica_ip]
-                    self.members_mutex.release()
-
-                else:
-                    print(RED + "Received bad packet type from RM" + RESET)
-
-                # Print out the new membership set
-                members = [addr for addr in self.members] + [self.ip]
-                print(RED + "Membership Updated: " + str(members) + RESET)
+                    # Print out the new membership set
+                    members = [addr for addr in self.members] + [self.ip]
+                    print(RED + "Membership Updated: " + str(members) + RESET)
 
             except KeyboardInterrupt:
                 s.close()
@@ -256,6 +265,7 @@ class Replica():
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
+
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
@@ -275,7 +285,6 @@ class Replica():
         """
         self.quiescence_lock.acquire()
         self.is_in_quiescence = True
-    
         print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
 
         for addr in self.members:
@@ -302,14 +311,14 @@ class Replica():
                     threading.Thread(target=self.replica_to_replica_receive_thread, args=(s, addr)).start()
 
                 except KeyboardInterrupt:
-                    self.quiescence_lock.release()
                     s.close()
+                    self.quiescence_lock.release()
                     return
 
                 except Exception as e:
                     print(e)
-                    self.quiescence_lock.release()
                     s.close()
+                    self.quiescence_lock.release()
                     
 
         self.is_in_quiescence = False
@@ -435,11 +444,9 @@ class Replica():
         """
         try:
             while True:
-                #self.quiescence_lock.acquire()
                 if self.is_in_quiescence:
-                    #self.quiescence_lock.release()
                     continue
-                
+
                 try:
                     connection = self.members[addr]
 
@@ -479,8 +486,6 @@ class Replica():
 
         except Exception as e:
             return
-        
-
 
     def process_votes(self):
         """
@@ -572,9 +577,9 @@ class Replica():
         """
         while True:
             self.quiescence_lock.acquire()
-            # while self.is_in_quiescence:
-            #     # We dont process any messages.
-            #     pass
+            while self.is_in_quiescence:
+                # We dont process any messages.
+                continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
@@ -622,7 +627,6 @@ class Replica():
                 broadcast_message_to_clients["type"] = "login_success"
                 broadcast_message_to_clients["username"] = username
                 broadcast_message_to_clients["text"] = ''
-                self.client_processed_msg_count[username] += 1
                 broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
 
             # If the client is attempting to logout
