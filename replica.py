@@ -61,7 +61,7 @@ class Replica():
         self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
 
         # Start the RM thread
-        # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
+        # Upon startup, this Replica will receive the add_replicas packet with its own IP.
         # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
@@ -150,7 +150,7 @@ class Replica():
                     for replica_ip in data["ip_list"]:
                         if replica_ip in self.members:
                             print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
-                        else: 
+                        else:
                             self.members[replica_ip] = None
                     self.members_mutex.release()
 
@@ -158,7 +158,7 @@ class Replica():
                         self.members_mutex.acquire()
                         del self.members[self.ip]
                         self.members_mutex.release()
-                        print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET) 
+                        print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET)
                         self.get_connection_from_old_replicas()
 
                     else: # Already member, need to connect to new members
@@ -229,20 +229,20 @@ class Replica():
                             checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
                             print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
                             print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
-                            
-  
+
+
                 except KeyboardInterrupt:
                     s.close()
                     return
 
-                
+
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
 
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence end" + RESET)
-     
+
         except KeyboardInterrupt:
             s.close()
             return
@@ -323,7 +323,7 @@ class Replica():
                 return
             except Exception as e:
                 return
-    
+
     ###############################################
     # Chat client functions
     ###############################################
@@ -353,7 +353,7 @@ class Replica():
             message = json.dumps(message)
             s.send(message.encode("utf-8"))
             s.close()
-            return 
+            return
 
         if (login_data["username"] in self.users): # Username already in use
             # Send failed login packet to new user
@@ -363,7 +363,7 @@ class Replica():
             message = json.dumps(message)
             s.send(message.encode("utf-8"))
             s.close()
-            return     
+            return
 
         # Otherwise, we accept the client
         username = login_data["username"]
@@ -377,13 +377,13 @@ class Replica():
             self.client_proc_msg_count[username] = 0
 
         # Insert job in client queue
-        while self.is_in_quiescence:
-            print(GREEN + "Log: {}".format(login_data) + RESET)
+        # while self.is_in_quiescence:
+        #     print(GREEN + "Log: {}".format(login_data) + RESET)
 
         self.client_msg_dict[(username, login_data["clock"])] = login_data
         self.client_msg_queue.put(login_data)
 
-        
+
         # Receive, process, and retransmit chat messages from the client
         while True:
             try:
@@ -391,7 +391,7 @@ class Replica():
                 data = data.decode("utf-8")
                 data = json.loads(data)
 
-                while self.is_in_quiescence:
+                if self.is_in_quiescence:
                     print(GREEN + "Log: {}".format(data) + RESET)
 
                 self.client_msg_dict[(username, data["clock"])] = data
@@ -412,12 +412,12 @@ class Replica():
 
         checkpoint_msg = json.dumps(checkpoint_msg)
         return checkpoint_msg
-    
+
     # We pop the first message out of the queue and broadcast the vote to all replicas
     def broadcast_vote(self, message):
         pass
 
-    # Votes are read by the replica_receive_thread and place them into a set. 
+    # Votes are read by the replica_receive_thread and place them into a set.
     # Wait.
     # Once the set has been filled with enough votes (num replicas - 1), we commit the message and reset the set.
     def process_votes(self):
@@ -434,12 +434,13 @@ class Replica():
         while True:
             # Quiescence control added here
             while self.is_in_quiescence:
+
                 continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
                 continue
-            
+
             # Pop a message from the queue
             data = self.client_msg_queue.get()
             username = data["username"]
@@ -449,16 +450,16 @@ class Replica():
                 del self.client_msg_dict[(username, data["clock"])]
                 continue
 
-            # TODO: Perform Lightweight gossip here, and check if you have the 
+            # TODO: Perform Lightweight gossip here, and check if you have the
             # message in the dictionary, if not wait for it and then process it.
-            
+
             del self.client_msg_dict[(username, data["clock"])]
 
             self.client_proc_msg_count[username] += 1
 
             # Print received message here
             print(YELLOW + "(PROC) -> {}".format(data) + RESET)
-            
+
             # Login Packet
             if (data["type"] == "login"):
                 # Send user joined message to all other users
@@ -505,7 +506,7 @@ class Replica():
                 message = json.dumps(message)
                 self.broadcast(message)
                 self.rp_msg_count += 1
-    
+
     def chat_server(self):
         # Open listening socket of Replica
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
