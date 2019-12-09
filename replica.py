@@ -41,7 +41,6 @@ class Replica():
         self.client_processed_msg_count = {}
 
         # Consensus Variables
-        self.is_in_quiescence = True
         self.votes = dict()
         self.current_proposal = None
         self.message_to_commit = None
@@ -221,6 +220,7 @@ class Replica():
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
+        self.quiescence_lock.acquire()
         try:
             while(self.missing_connections()):
                 # Accept a new connection
@@ -249,7 +249,8 @@ class Replica():
                             print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
                             print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
 
-                except KeyboardInterrupt:
+                except Exception:
+                    self.quiescence_lock.release()
                     s.close()
                     return
 
@@ -257,15 +258,17 @@ class Replica():
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
 
-            self.is_in_quiescence = False
+            self.quiescence_lock.release()
             print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
 
         except KeyboardInterrupt:
+            self.quiescence_lock.release()
             s.close()
             return
 
         except Exception as e:
+            self.quiescence_lock.release()
             s.close()
             print(e)
 
@@ -275,7 +278,6 @@ class Replica():
         connect to the new replicas and send them a checkpoint.
         """
         self.quiescence_lock.acquire()
-        self.is_in_quiescence = True
         print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
 
         for addr in self.members:
@@ -311,8 +313,6 @@ class Replica():
                     self.quiescence_lock.release()
                     s.close()
 
-
-        self.is_in_quiescence = False
         self.quiescence_lock.release()
         print(MAGENTA + "Quiescence ended: Connected to all new replicas." + RESET)
 
@@ -435,12 +435,9 @@ class Replica():
         """
         try:
             while True:
-                if self.is_in_quiescence:
-                    continue
-
                 try:
-                    connection = self.members[addr]
-
+                    # connection = self.members[addr]
+                    self.quiescence_lock.acquire()
                     # connection.settimeout(10)
                     data = s.recv(BUF_SIZE)
 
@@ -457,25 +454,25 @@ class Replica():
                                 self.commit_flag = True
 
                             self.votes_mutex.release()
+
                         else:
                             print('Non-vote data recieved: ', data)
+                    self.quiescence_lock.release()
 
                 except Exception as e:
                     print(e)
                     time.sleep(1)  # Random Hack: Hoping to sync with RM membership updates
-                    # self.votes_mutex.acquire()
-                    # if(len(self.votes) >= len(self.members)):
-                    #     self.process_votes()
-                    #     self.commit_flag = True
+                    self.votes_mutex.acquire()
+                    if(len(self.votes) >= len(self.members)):
+                        self.process_votes()
+                        self.commit_flag = True
                     self.votes_mutex.release()
+                    self.quiescence_lock.release()
                     s.close()
                     return
 
         except KeyboardInterrupt:
             s.close()
-            return
-
-        except Exception as e:
             return
 
 
