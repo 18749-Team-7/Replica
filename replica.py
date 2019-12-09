@@ -432,6 +432,7 @@ class Replica():
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception:
+                    self.members_mutex.release()
                     print('Exception while boardcasting')
                     self.members[addr].close()
                     continue
@@ -582,9 +583,8 @@ class Replica():
                 continue
 
             # Get job from the queue and process it
-            if self.client_msg_queue.empty():
-                self.quiescence_lock.release()
-                continue
+            while self.client_msg_queue.empty():
+                pass
 
             # Pop a message from the queue
             if(self.current_proposal is None):
