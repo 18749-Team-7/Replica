@@ -220,9 +220,10 @@ class Replica():
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
-        self.quiescence_lock.acquire()
+
         try:
             while(self.missing_connections()):
+                self.quiescence_lock.acquire()
                 # Accept a new connection
                 conn, addr = s.accept()
                 addr = addr[0]
@@ -254,11 +255,12 @@ class Replica():
                     s.close()
                     return
 
+                self.quiescence_lock.release()
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
 
-            self.quiescence_lock.release()
+
             print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
 
