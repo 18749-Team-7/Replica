@@ -58,7 +58,7 @@ class Replica():
         self.members_mutex = threading.Lock() # Lock on replica members dict
 
         # Start the heartbeat thread
-        self.start_heartbeat(interval=heartbeat_frequency)  # TODO: Don't hardcode these values. Interval = 1 sec
+        self.start_heartbeat(interval=heartbeat_frequency)
 
         # Start the RM thread
         # Upon startup, this Replica will receive the add_replicas packet with its own IP.
@@ -75,8 +75,6 @@ class Replica():
         print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
         threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
         self.chat_server()
-
-
 
 
     def set_host_ip(self):
@@ -102,6 +100,7 @@ class Replica():
             except Exception as e:
                 print(e)
                 time.sleep(interval)
+                return
 
     def start_heartbeat(self, interval):
         try:
@@ -114,7 +113,7 @@ class Replica():
             print(e)
             return
 
-        threading.Thread(target=self.heartbeat_thread,args=(s, interval), daemon=True).start()
+        threading.Thread(target=self.heartbeat_thread, args=(s, interval), daemon=True).start()
 
 
     ###############################################
