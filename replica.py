@@ -302,15 +302,15 @@ class Replica():
                     threading.Thread(target=self.replica_to_replica_receive_thread, args=(s, addr)).start()
 
                 except KeyboardInterrupt:
-                    s.close()
                     self.quiescence_lock.release()
+                    s.close()
                     return
 
                 except Exception as e:
                     print(e)
-                    s.close()
                     self.quiescence_lock.release()
-                    
+                    s.close()
+
 
         self.is_in_quiescence = False
         self.quiescence_lock.release()
@@ -463,10 +463,10 @@ class Replica():
                 except Exception as e:
                     print(e)
                     time.sleep(1)  # Random Hack: Hoping to sync with RM membership updates
-                    self.votes_mutex.acquire()
-                    if(len(self.votes) >= len(self.members)):
-                        self.process_votes()
-                        self.commit_flag = True
+                    # self.votes_mutex.acquire()
+                    # if(len(self.votes) >= len(self.members)):
+                    #     self.process_votes()
+                    #     self.commit_flag = True
                     self.votes_mutex.release()
                     s.close()
                     return
@@ -477,6 +477,7 @@ class Replica():
 
         except Exception as e:
             return
+
 
     def process_votes(self):
         """
@@ -567,9 +568,9 @@ class Replica():
         """
         while True:
             self.quiescence_lock.acquire()
-            while self.is_in_quiescence:
-                # We dont process any messages.
-                continue
+            # while self.is_in_quiescence:
+            #     # We dont process any messages.
+            #     continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
@@ -598,6 +599,7 @@ class Replica():
             if (len(self.members) == 0):
                 print('Consensus Reached')
                 self.message_to_commit = current_msg
+                print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
                 self.commit_flag = True
 
             while(self.commit_flag is False):
