@@ -345,7 +345,7 @@ class Replica():
         login_data = login_data.decode("utf-8")
         login_data = json.loads(login_data)
 
-        if (login_data["type"] != "login"): # Wrong packet type
+        if (login_data["type"] != "login"):  # Wrong packet type
             # Send error message
             message = dict()
             message["type"] = "error"
@@ -377,8 +377,7 @@ class Replica():
             self.client_proc_msg_count[username] = 0
 
         # Insert job in client queue
-        # while self.is_in_quiescence:
-        #     print(GREEN + "Log: {}".format(login_data) + RESET)
+        print(GREEN + "Log: {}".format(login_data) + RESET)
 
         self.client_msg_dict[(username, login_data["clock"])] = login_data
         self.client_msg_queue.put(login_data)
@@ -447,6 +446,7 @@ class Replica():
 
             # If the message has already been processed
             if data["clock"] < self.client_proc_msg_count[username]:
+                print("Discarded a previously processed message from:", username)
                 del self.client_msg_dict[(username, data["clock"])]
                 continue
 
