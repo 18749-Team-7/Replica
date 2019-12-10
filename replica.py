@@ -675,68 +675,71 @@ class Replica():
                 if (len(self.votes) >= quorum):
                     print(YELLOW + "Proposed Vote message is :" + str(self.votes) + RESET)
                     self.process_votes()
+                
             
             # After processing votes, release the processing votes flag
             # so that votes collection are started for next cycle
             self.votes_processing = False
 
-            #########################################################
-            ### Broadcast message to be committed to all clients. ###
-            #########################################################
+                #########################################################
+                ### Broadcast message to be committed to all clients. ###
+                #########################################################
 
-            broadcast_message_to_clients = dict()
-            username = self.message_to_commit["username"]
+            if self.message_to_commit is not None:
+                
+                broadcast_message_to_clients = dict()
+                username = self.message_to_commit["username"]
 
-            # Login Packet
-            if (self.message_to_commit["type"] == "login"):
-                # Send user joined message to all other users
-                broadcast_message_to_clients["type"] = "login_success"
-                broadcast_message_to_clients["username"] = username
-                broadcast_message_to_clients["text"] = ''
-                broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+                # Login Packet
+                if (self.message_to_commit["type"] == "login"):
+                    # Send user joined message to all other users
+                    broadcast_message_to_clients["type"] = "login_success"
+                    broadcast_message_to_clients["username"] = username
+                    broadcast_message_to_clients["text"] = ''
+                    broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
 
-            # If the client is attempting to logout
-            elif (self.message_to_commit["type"] == "logout"):
-                s = self.users[username]
-                # Delete the current client from the dictionary
-                self.users_mutex.acquire()
-                del self.users[username]
-                self.users_mutex.release()
-                self.client_processed_msg_count[username] += 1
-                del self.client_processed_msg_count[username]
-                # TODO: Stop the client service thread for this particular client!
+                # If the client is attempting to logout
+                elif (self.message_to_commit["type"] == "logout"):
+                    s = self.users[username]
+                    # Delete the current client from the dictionary
+                    self.users_mutex.acquire()
+                    del self.users[username]
+                    self.users_mutex.release()
+                    self.client_processed_msg_count[username] += 1
+                    del self.client_processed_msg_count[username]
+                    # TODO: Stop the client service thread for this particular client!
 
-                print(RED + "Logout from:", username + RESET)
+                    print(RED + "Logout from:", username + RESET)
 
-                broadcast_message_to_clients["type"] = "logout_success"
-                broadcast_message_to_clients["username"] = username
-                broadcast_message_to_clients["text"] = ''
-                broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+                    broadcast_message_to_clients["type"] = "logout_success"
+                    broadcast_message_to_clients["username"] = username
+                    broadcast_message_to_clients["text"] = ''
+                    broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+                    self.broadcast_msg(broadcast_message_to_clients)
+                    s.close()
+
+                # If the client sends a normal chat message
+                elif (self.message_to_commit["type"] == "send_message"):
+                    broadcast_message_to_clients["type"] = "receive_message"
+                    broadcast_message_to_clients["username"] = username
+                    broadcast_message_to_clients["text"] = self.message_to_commit['text']
+                    broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+
+                # Broadcast to all clients
                 self.broadcast_msg(broadcast_message_to_clients)
-                s.close()
 
-            # If the client sends a normal chat message
-            elif (self.message_to_commit["type"] == "send_message"):
-                broadcast_message_to_clients["type"] = "receive_message"
-                broadcast_message_to_clients["username"] = username
-                broadcast_message_to_clients["text"] = self.message_to_commit['text']
-                broadcast_message_to_clients["replica_clock"] = self.replica_processed_msg_count
+                # After the client message is processed and commited.
+                self.replica_processed_msg_count += 1
+                if broadcast_message_to_clients["type"] != "logout_success":
+                    self.client_processed_msg_count[username] += 1
 
-            # Broadcast to all clients
-            self.broadcast_msg(broadcast_message_to_clients)
+                # Retain current proposal if it was not chosen by majority
+                # and propose the same proposal in the next round.
+                if self.message_to_commit == self.current_proposal["client_msg"]:
+                    self.current_proposal = None
 
-            # After the client message is processed and commited.
-            self.replica_processed_msg_count += 1
-            if broadcast_message_to_clients["type"] != "logout_success":
-                self.client_processed_msg_count[username] += 1
-
-            # Retain current proposal if it was not chosen by majority
-            # and propose the same proposal in the next round.
-            if self.message_to_commit == self.current_proposal["client_msg"]:
-                self.current_proposal = None
-
-            #del self.client_msg_dict[(username, self.message_to_commit["clock"])]
-            # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
+                #del self.client_msg_dict[(username, self.message_to_commit["clock"])]
+                # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
             
             
             # Mutex unlock where processing is done 
@@ -744,7 +747,7 @@ class Replica():
             # if there is a membership change
             # if there is no membership change, it releases the lock and goes to next cycle
             self.members_mutex.release()
-            print(MAGENTA + "acquired members mutex in client_msg_processing_queue " + RESET)
+            print(MAGENTA + "released members mutex in client_msg_processing_queue " + RESET)
 
     def chat_server(self):
         # Open listening socket of Replica
