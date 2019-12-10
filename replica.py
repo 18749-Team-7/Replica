@@ -174,13 +174,16 @@ class Replica():
                         self.members_mutex.release()
 
                         if self.ip in data["ip_list"]:
+                            print(GREEN + "all replicas " + RESET)
                             # If connected as new member --> get states from existing replicas.
                             self.members_mutex.acquire()
+                            print(GREEN + "members mutex acquired in new member" + RESET)
                             del self.members[self.ip]
                             self.members_mutex.release()
                             self.connect_to_existing_replicas()
 
                         else:
+                            print(GREEN + "add replicas " + RESET)
                             # If an exisiting member --> connect to new members.
                             time.sleep(1)
                             self.connect_to_new_replicas()
@@ -205,6 +208,8 @@ class Replica():
                     print(RED + "Membership Updated: " + str(members) + RESET)
 
             except KeyboardInterrupt:
+                # members = [addr for addr in self.members] + [self.ip]
+                # print(RED + "Membership Updated: " + str(members) + RESET)
                 s.close()
                 return
 
@@ -227,6 +232,7 @@ class Replica():
         replicas to do the same.
         """
 
+        print(GREEN + "connect_to_existing_replicas" + RESET)
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)  # IPv4, TCPIP
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.replica_port))
@@ -239,30 +245,29 @@ class Replica():
                 addr = addr[0]
                 self.members[addr] = conn
 
-                try:
-                    data = conn.recv(BUF_SIZE)
-                    if data:
-                        if self.ckpt_received is False:
+                data = conn.recv(BUF_SIZE)
+                if data:
+                    if self.ckpt_received is False:
 
-                            replica_ckpt = json.loads(data.decode("utf-8"))
-                            assert(replica_ckpt["type"] == "checkpoint")
-                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+                        replica_ckpt = json.loads(data.decode("utf-8"))
+                        assert(replica_ckpt["type"] == "checkpoint")
+                        print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
-                            self.replica_processed_msg_count = replica_ckpt["replica_processed_msg_count"]
-                            self.client_processed_msg_count = replica_ckpt["client_processed_msg_count"]
-                            self.ckpt_received = True
-                        else:
-                            assert(replica_ckpt["type"] == "checkpoint")
-                            checkpoint_msg = {}
-                            checkpoint_msg["type"] = "checkpoint"
-                            checkpoint_msg["replica_processed_msg_count"] = self.replica_processed_msg_count
-                            checkpoint_msg["client_processed_msg_count"] = self.client_processed_msg_count
-                            print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
-                            print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
+                        self.replica_processed_msg_count = replica_ckpt["replica_processed_msg_count"]
+                        self.client_processed_msg_count = replica_ckpt["client_processed_msg_count"]
+                        self.ckpt_received = True
+                    else:
+                        assert(replica_ckpt["type"] == "checkpoint")
+                        checkpoint_msg = {}
+                        checkpoint_msg["type"] = "checkpoint"
+                        checkpoint_msg["replica_processed_msg_count"] = self.replica_processed_msg_count
+                        checkpoint_msg["client_processed_msg_count"] = self.client_processed_msg_count
+                        print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
+                        print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
 
-                except KeyboardInterrupt:
-                    s.close()
-                    return
+                # except KeyboardInterrupt:
+                #     s.close()
+                #     return
 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
@@ -273,10 +278,12 @@ class Replica():
             self.members_mutex.release()
 
         except KeyboardInterrupt:
+            self.members_mutex.release()
             s.close()
             return
 
         except Exception as e:
+            self.members_mutex.release()
             s.close()
             print(e)
 
