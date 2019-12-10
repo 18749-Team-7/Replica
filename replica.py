@@ -163,7 +163,9 @@ class Replica():
                     print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
                     if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
+                        print(GREEN + "acquiring members mutex " + RESET)
                         self.members_mutex.acquire()
+                        print(GREEN + "members mutex acquired " + RESET)
                         for replica_ip in data["ip_list"]:
                             if replica_ip in self.members:
                                 print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
