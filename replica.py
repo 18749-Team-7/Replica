@@ -42,15 +42,17 @@ class Replica():
         self.client_processed_msg_count = {}
 
         # Consensus Variables
-        self.is_in_quiescence = True
         self.votes = dict()
         self.current_proposal = None
         self.message_to_commit = None
-        self.commit_flag = False
 
 
-        # Flag to indicate if checkpointing was done
-        self.ckpt_received = False
+        # Flags and state Holders
+        self.membership_change = False  # Flag to indicate if there is membership change 
+        self.ckpt_received = False    # Flag to indicate if checkpointing was done
+        self.quiescence_over = False  # Flag to indicate if quiescence has ended
+        self.votes_processing = False 
+        
 
         # Global variables
         self.users = dict()
@@ -61,9 +63,7 @@ class Replica():
 
         self.members = dict()
         self.members_mutex = threading.Lock()  # Lock on replica members dict
-        self.checkpoint_mutex = threading.Lock()  # Lock on the checkpoint creation
-        self.quiescence_lock = threading.Lock()
-        self.votes_mutex = threading.Lock()  # Lock on votes
+        
 
         # Start the heartbeat thread
         self.start_heartbeat(interval=heartbeat_frequency)
@@ -162,14 +162,14 @@ class Replica():
                     data = json.loads(data)
                     print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
-                    # Quiescence period starts (denoted by this flag)
-                    self.is_in_quiescence = True
+                    # Membership changes starts (denoted by this flag)
+                    self.membership_change = True
 
                     # Acquiring the Members mutex so that
                     # votes and processing stops till new membership is updated
                     # Mutex is acquired only after data is received (i.e membership change is requested)
                     self.members_mutex.acquire()
-                    print(GREEN + "acquired members mutex in rm thread " + RESET)
+                    print(YELLOW + "acquired members mutex in rm thread " + RESET)
                     
                     if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
                         for replica_ip in data["ip_list"]:
@@ -204,6 +204,9 @@ class Replica():
                     # Print out the new membership set
                     members = [addr for addr in self.members] + [self.ip]
                     print(RED + "Membership Updated: " + str(members) + RESET)
+
+                    # membership_change ends (denoted by this flag)
+                    self.membership_change = False
 
                     #Releasing the mutex to start the processing of votes and client messages
                     self.members_mutex.release()
@@ -286,7 +289,6 @@ class Replica():
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
             
 
-            # self.is_in_quiescence = False
             #TODO: wait for two connections ?
             # new replica send an acknowledgement message to old replicas
             # that the quiescence is over
@@ -326,7 +328,6 @@ class Replica():
         """
         print(RED + " Entering old replica piece of code" + RESET)
         
-        #self.is_in_quiescence = True
         
         # Flag to indicate the quiescence status
         self.quiescence_over = False
@@ -378,8 +379,6 @@ class Replica():
                     print("Exception occured in Old Replica:" + str(e))
                     s.close() 
                     
-        
-        #self.is_in_quiescence = False
         
         
 
@@ -514,7 +513,7 @@ class Replica():
                 # if there is no processing vote cycle, it acquires the lock and populates thhe vote
                 # self.voters_mutex.acquire()
                 #TODO: stop votes receiving in quiescence as well ? How?
-                while self.votes_processing or self.is_in_quiescence:
+                while self.votes_processing or self.membership_change:
                     pass
 
                 connection = self.members[addr]
@@ -657,7 +656,7 @@ class Replica():
             # if there is a membership change
             # if there is no membership chang, it acquires the lock and does the vote processing
             self.members_mutex.acquire()
-            print(GREEN + "acquired members mutex in client_msg_processing_queue " + RESET)
+            print(YELLOW + "acquired members mutex in client_msg_processing_queue " + RESET)
 
             self.broadcast_votes()
 
