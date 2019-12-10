@@ -461,13 +461,13 @@ class Replica():
         try:
             while True:
                 while True:
-                self.quiescence_lock.acquire()
-                if self.is_in_quiescence:
-                    self.quiescence_lock.release()
-                    # We dont process any messages.
-                    continue
-                else:
-                    break
+                    self.quiescence_lock.acquire()
+                    if self.is_in_quiescence:
+                        self.quiescence_lock.release()
+                        # We dont process any messages.
+                        continue
+                    else:
+                        break
 
                 try:
                     connection = self.members[addr]
