@@ -544,7 +544,7 @@ class Replica():
                 s.close()
                 return
 
-    def process_votes(self):
+    def process_votes(self,quorum):
         """
         Collect proposals from all the replicas on which client message to process
         and then set that message to self.message_to_commit.
@@ -566,19 +566,15 @@ class Replica():
         vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
-        while(self.current_proposal is None):
-            pass
 
-        #print("done waiting for current proposal")
+        # print("done waiting for current proposal")
 
         # Collect votes
         # First consider the replicas, self.current_proposal
-        #print(self.current_proposal)
+        # print(self.current_proposal)
         if self.current_proposal["client_msg"]['clock'] == self.client_processed_msg_count[self.current_proposal["client_msg"]["username"]]:
             count_votes[(self.current_proposal["client_msg"]['username'], self.current_proposal["client_msg"]['clock'])] += 1
         else:
-            # Current hypothesis is that TCP should ensure this condition should never happen.
-            # If it does, call Ashwin.
             raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
 
         #print(self.votes)
@@ -596,7 +592,6 @@ class Replica():
                 vote_to_commit = key
 
         if (vote_to_commit is None):
-            # Vote Logic added by Ashwin. Reach out if you need clarity.
             min_vote_clock = sorted(votes.keys(), key=lambda ele: ele[1])[0][1]
             vote_to_commit = sorted(votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
             print(YELLOW + 'Consensus reached by picking based on alphabetical order of client name with lowest clock!' + RESET)
@@ -634,7 +629,7 @@ class Replica():
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
                 continue
-
+            
             # Pop a message from the queue
             if(self.current_proposal is None):
                 current_msg = self.client_msg_queue.get()
@@ -650,6 +645,7 @@ class Replica():
             self.current_proposal = dict()
             self.current_proposal["type"] = "vote"
             self.current_proposal["client_msg"] = current_msg
+            self.message_to_commit = None
 
             self.votes_processing = True
             # Mutex lock where processing will be held 
@@ -674,7 +670,7 @@ class Replica():
                 quorum = (len(self.members)//2) + 1
                 if (len(self.votes) >= quorum):
                     print(YELLOW + "Proposed Vote message is :" + str(self.votes) + RESET)
-                    self.process_votes()
+                    self.process_votes(quorum)
                 
             
             # After processing votes, release the processing votes flag
