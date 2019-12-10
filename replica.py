@@ -162,11 +162,15 @@ class Replica():
                     data = json.loads(data)
                     print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
+                    # Quiescence period starts (denoted by this flag)
+                    self.is_in_quiescence = True
+
                     # Acquiring the Members mutex so that
                     # votes and processing stops till new membership is updated
                     # Mutex is acquired only after data is received (i.e membership change is requested)
                     self.members_mutex.acquire()
                     print(GREEN + "acquired members mutex in rm thread " + RESET)
+                    
                     if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
                         for replica_ip in data["ip_list"]:
                             if replica_ip in self.members:
@@ -241,6 +245,7 @@ class Replica():
         s.bind((self.ip, self.replica_port))
         s.listen(5)
 
+        self.quiescence_over = False
 
         try:
             while(self.missing_connections()):
@@ -283,6 +288,22 @@ class Replica():
 
             # self.is_in_quiescence = False
             #TODO: wait for two connections ?
+            # new replica send an acknowledgement message to old replicas
+            # that the quiescence is over
+            for addr in self.members:
+                try:
+                    quiescence_message = dict()
+                    quiescence_message["text"] = "quiescence_over"
+                    quiescence_message = json.dumps(quiescence_message)
+                    self.members[addr].send(quiescence_message.encode("utf-8"))
+                except Exception as e:
+                    print(RED + 'Failed while sending a Replica checkpoint acknowledgement to:' + self.members[addr] + RESET)
+
+            # after receiving the number of connections from other replicas
+            # the new replica signal the other old replica to continue with
+            # their work
+            self.quiescence_over = True
+
             if(len(self.members)==0):
                 print(MAGENTA + "No Quiescence as there is only one replica" + RESET)
             else:
@@ -307,7 +328,10 @@ class Replica():
         
         #self.is_in_quiescence = True
         
-        # connect to replicas in members list
+        # Flag to indicate the quiescence status
+        self.quiescence_over = False
+
+        # connect to new replica in members list
         for addr in self.members:
             if self.members[addr] is None:
                 try:
@@ -328,6 +352,22 @@ class Replica():
 
                     # Create a new Replica to Replica thread
                     threading.Thread(target=self.replica_to_replica_receive_thread, args=(s, addr)).start()
+
+
+                    # old replica has to wait for execution untill it receives an 
+                    # acknowledgement message from new replica that the quiescence is over
+                    try:
+                        quiescence_acknowledgement = s.recv(BUF_SIZE)
+                        quiescence_acknowledgement = quiescence_acknowledgement.decode("utf-8")
+                        quiescence_acknowledgement = json.loads(quiescence_acknowledgement)
+                    except:
+                        print(RED + 'Failed while accepting a Replica checkpoint acknowledgement from:' + self.members[addr] + RESET)
+
+
+                    # recv is a blocking call so old replica thread waits above until
+                    # quiescence is over (i.e gets an acknowledgement from new replica)
+                    if(quiescence_acknowledgement["text"] == "quiescence_over"):
+                        self.quiescence_over = True
 
                 except KeyboardInterrupt:
                     #TODO: If killed do we need to release the mutex ?
@@ -444,75 +484,66 @@ class Replica():
 
     def broadcast_votes(self):
         # send proposals to all other replicas.
-        self.members_mutex.acquire()
         for addr in self.members:
             if self.members[addr] is not None:
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
-                except Exception:
-                    self.members_mutex.release()
-                    print('Exception while broadcasting')
-                    self.members[addr].close()
-                    continue
-        self.members_mutex.release()
+                except Exception as e:
+                    #TODO: To release votes mutex ?
+                    print(RED + "Exception while broadcasting " + str(e) + RESET)
+                    #self.members[addr].close()
+                continue
+        
 
     def replica_to_replica_receive_thread(self, s, addr):
         """
         TODO: How do we prevent a vote from a given replica at 't' from
               overwriting the vote at 't-1'?
         """
-        try:
-            while True:
-                while True:
-                    #print(GREEN + "quiescence mutex_acquired in r_to_r" + RESET)
-                    self.quiescence_lock.acquire()
-                    if self.is_in_quiescence:
-                        self.quiescence_lock.release()
-                        #print(MAGENTA + "quiescence mutex_released in r_to_r" + RESET)
-                        # We dont process any messages.
-                        continue
+
+        # Flag to hold the replica to replica thread
+        # untill the new replica acknowledges with a 
+        # quiescence_over state
+        while not self.quiescence_over:
+            pass
+
+        while True:
+            try:
+                # Mutex lock where processing will be held 
+                # if there is a processing vote cycle
+                # if there is no processing vote cycle, it acquires the lock and populates thhe vote
+                # self.voters_mutex.acquire()
+                #TODO: stop votes receiving in quiescence as well ? How?
+                while self.votes_processing or self.is_in_quiescence:
+                    pass
+
+                connection = self.members[addr]
+                # connection.settimeout(10)
+
+                # starts receiving vote from other replicas
+                data = s.recv(BUF_SIZE)
+                if data:
+                    data = json.loads(data.decode("utf-8"))
+                    if data['type'] == 'vote':
+                        print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
+                        self.votes[addr] = data['client_msg']
+
                     else:
-                        break
+                        print('Non-vote data recieved: ', data)
 
-                try:
-                    connection = self.members[addr]
+                # After populating, votes mutex is released
+                # to check for quorum 
+                #self.voters_mutex.release()
 
-                    # connection.settimeout(10)
-                    data = s.recv(BUF_SIZE)
-
-                    if data:
-                        data = json.loads(data.decode("utf-8"))
-                        if data['type'] == 'vote':
-                            #print('Received Vote from:', addr)
-                            self.votes_mutex.acquire()
-                            self.votes[addr] = data['client_msg']
-
-                            if (len(self.votes) >= len(self.members)):
-                                print(self.votes)
-                                self.process_votes()
-                                self.commit_flag = True
-
-                            self.votes_mutex.release()
-                        else:
-                            print('Non-vote data recieved: ', data)
-
-                except Exception as e:
-                    print(e)
-                    time.sleep(1)  # Random Hack: Hoping to sync with RM membership updates
-                    # self.votes_mutex.acquire()
-                    # if(len(self.votes) >= len(self.members)):
-                    #     self.process_votes()
-                    #     self.commit_flag = True
-                    self.votes_mutex.release()
-                    s.close()
-                    return
-
-        except KeyboardInterrupt:
-            s.close()
-            return
-
-        except Exception as e:
-            return
+            except KeyboardInterrupt:
+                s.close()
+                return
+            
+            except Exception as e:
+                #TODO: To release votes mutex ?
+                print(RED + "Exception at Replica_to_replica_thread " + str(e) + RESET)
+                s.close()
+                return
 
     def process_votes(self):
         """
@@ -530,14 +561,11 @@ class Replica():
                What happens now? In the current implementation, we are going to use the
                old stale vote from the previous round and use it for consensus.
         """
-        print('Processing votes')
+
+        #TODO: vote logic should be checked
+
         vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
-
-        self.members_mutex.acquire()
-        quorum = (len(self.members)//2) + 1
-        self.members_mutex.release()
-        #print(quorum)
 
         while(self.current_proposal is None):
             pass
@@ -575,7 +603,7 @@ class Replica():
             print(YELLOW + 'Consensus reached by picking based on alphabetical order of client name with lowest clock!' + RESET)
         else:
             pass
-            #print('Consensus Reached by Majority')
+            print('Consensus Reached by Majority')
 
         for vote in self.votes.values():
             if vote['username'] == vote_to_commit[0] and vote['clock'] == vote_to_commit[1]:
@@ -603,48 +631,55 @@ class Replica():
             go to step 1 else broadcast the same current proposal in the next round too.
         """
         while True:
-            while True:
-                #print(GREEN + "quiescence mutex_acquired in client_msg_processing_queue" + RESET)
-                self.quiescence_lock.acquire()
-                if self.is_in_quiescence:
-                    self.quiescence_lock.release()
-                    #print(MAGENTA + "quiescence mutex_released in client_msg_processing_queue" + RESET)
-                    # We dont process any messages.
-                    continue
-                else:
-                    break
-
+            
             # Get job from the queue and process it
-            while self.client_msg_queue.empty():
-                pass
+            if self.client_msg_queue.empty():
+                continue
 
             # Pop a message from the queue
             if(self.current_proposal is None):
                 current_msg = self.client_msg_queue.get()
                 # current_msg --> {"type": "login/logout/send_message", "username":<username>, "clock":0}.
 
-                # If the message has already been processed
-                if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
-                    print("Discarded a previously processed message from:", current_msg['username'])
-                    del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
-                    self.quiescence_lock.release()
-                    continue
+            # If the message has already been processed
+            if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
+                print("Discarded a previously processed message from:", current_msg['username'])
+                del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
+                continue
+            
+            # Otherwise have process the message by proposing
+            self.current_proposal = dict()
+            self.current_proposal["type"] = "vote"
+            self.current_proposal["client_msg"] = current_msg
 
-                self.current_proposal = dict()
-                self.current_proposal["type"] = "vote"
-                self.current_proposal["client_msg"] = current_msg
+            self.votes_processing = True
+            # Mutex lock where processing will be held 
+            # if there is a membership change
+            # if there is no membership chang, it acquires the lock and does the vote processing
+            self.members_mutex.acquire()
+            print(GREEN + "acquired members mutex in client_msg_processing_queue " + RESET)
 
             self.broadcast_votes()
 
-            # No other replicas
+            # check for quorum (i.e it can process if it receives
+            # half the number of votes) 
+            # for one replica - quorum is 0
+            # for two replicas - quorum is one
+            # for three replicas quorum is two
+            # based on quorum, the votes are processed
             if (len(self.members) == 0):
-                #print('Consensus Reached')  
                 self.message_to_commit = current_msg
                 print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
-                self.commit_flag = True
-
-            while(self.commit_flag is False):
-                pass
+            else:
+                #TODO: what to do with votes greater than quorum ?
+                quorum = (len(self.members)//2) + 1
+                if (len(self.votes) >= quorum):
+                    print(YELLOW + "Proposed Vote message is :" + str(self.votes) + RESET)
+                    self.process_votes()
+            
+            # After processing votes, release the processing votes flag
+            # so that votes collection are started for next cycle
+            self.votes_processing = False
 
             #########################################################
             ### Broadcast message to be committed to all clients. ###
@@ -692,7 +727,6 @@ class Replica():
             self.broadcast_msg(broadcast_message_to_clients)
 
             # After the client message is processed and commited.
-            self.commit_flag = False
             self.replica_processed_msg_count += 1
             if broadcast_message_to_clients["type"] != "logout_success":
                 self.client_processed_msg_count[username] += 1
@@ -704,7 +738,14 @@ class Replica():
 
             #del self.client_msg_dict[(username, self.message_to_commit["clock"])]
             # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
-            self.quiescence_lock.release()
+            
+            
+            # Mutex unlock where processing is done 
+            # It is released to check for 
+            # if there is a membership change
+            # if there is no membership change, it releases the lock and goes to next cycle
+            self.members_mutex.release()
+            print(MAGENTA + "acquired members mutex in client_msg_processing_queue " + RESET)
 
     def chat_server(self):
         # Open listening socket of Replica
