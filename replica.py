@@ -605,7 +605,7 @@ class Replica():
 
         #print('vote to commit', vote_to_commit)
 
-        print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
+        print(GREEN + 'message to commit in process votes:', str(self.message_to_commit) + RESET)
 
         # Reset votes
         self.votes = dict()
@@ -636,7 +636,8 @@ class Replica():
 
             # If the message has already been processed
             if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
-                print("Discarded a previously processed message from:", current_msg['username'])
+                print (self.client_processed_msg_count[current_msg['username']])
+                print("Discarded a previously processed message from at :",current_msg['username'], current_msg["clock"])
                 del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
                 continue
             
@@ -663,7 +664,7 @@ class Replica():
             # based on quorum, the votes are processed
             if (len(self.members) == 0):
                 self.message_to_commit = current_msg
-                print(GREEN + 'message to commit:', str(self.message_to_commit) + RESET)
+                print(GREEN + 'message to commit in 0 replica:', str(self.message_to_commit) + RESET)
             else:
                 #TODO: what to do with votes greater than quorum ?
                 quorum = (len(self.members)//2) + 1
@@ -685,6 +686,7 @@ class Replica():
                 broadcast_message_to_clients = dict()
                 username = self.message_to_commit["username"]
 
+                print(CYAN + "replica_processed_msg_count:" + str(self.replica_processed_msg_count))
                 # Login Packet
                 if (self.message_to_commit["type"] == "login"):
                     # Send user joined message to all other users
