@@ -634,6 +634,7 @@ class Replica():
                 current_msg = self.client_msg_queue.get()
                 # current_msg --> {"type": "login/logout/send_message", "username":<username>, "clock":0}.
 
+            print(self.client_msg_queue)
             print("Current message is ", current_msg)
             # If the message has already been processed
             if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
