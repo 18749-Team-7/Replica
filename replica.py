@@ -515,7 +515,7 @@ class Replica():
                What happens now? In the current implementation, we are going to use the
                old stale vote from the previous round and use it for consensus.
         """
-        #print('Processing votes')
+        print('Processing votes')
         vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
@@ -588,10 +588,14 @@ class Replica():
             go to step 1 else broadcast the same current proposal in the next round too.
         """
         while True:
-            self.quiescence_lock.acquire()
-            while self.is_in_quiescence:
-                # We dont process any messages.
-                continue
+            while True:
+                self.quiescence_lock.acquire()
+                if self.is_in_quiescence:
+                    self.quiescence_lock.release()
+                    # We dont process any messages.
+                    continue
+                else:
+                    break
 
             # Get job from the queue and process it
             while self.client_msg_queue.empty():
