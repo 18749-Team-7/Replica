@@ -42,7 +42,7 @@ class Replica():
         self.client_processed_msg_count = {}
 
         # Consensus Variables
-        self.is_in_quiescence = False
+        self.is_in_quiescence = True
         self.votes = dict()
         self.current_proposal = None
         self.message_to_commit = None
@@ -153,7 +153,7 @@ class Replica():
             try:
                 print("start_time" + str(time.time()))
                 data, _ = s.recvfrom(BUF_SIZE)
-                print(time.time())
+                #print(time.time())
                 if ((time.time() - time_start  > 3) or start_flag):
                     print(GREEN + "processing" + RESET)
                     time_start = time.time()
@@ -163,27 +163,29 @@ class Replica():
                     print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
                     if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
-                        print(GREEN + "acquiring members mutex " + RESET)
+                        for replica_ip in data["ip_list"]:
+                            print(replica_ip)
                         self.members_mutex.acquire()
-                        print(GREEN + "members mutex acquired " + RESET)
+                        print(self.members)
+                        print(GREEN + "acquired members mutex in rm thread " + RESET)
                         for replica_ip in data["ip_list"]:
                             if replica_ip in self.members:
                                 print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
                             else:
                                 self.members[replica_ip] = None
                         self.members_mutex.release()
+                        print(MAGENTA + "releasing members mutex in rm thread " + RESET)
 
                         if self.ip in data["ip_list"]:
-                            print(GREEN + "all replicas " + RESET)
                             # If connected as new member --> get states from existing replicas.
                             self.members_mutex.acquire()
-                            print(GREEN + "members mutex acquired in new member" + RESET)
+                            print(GREEN + "acquired members mutex in get states from existing replicas " + RESET)
                             del self.members[self.ip]
                             self.members_mutex.release()
+                            print(MAGENTA + "releasing members mutex in rget states from existing replicas " + RESET)
                             self.connect_to_existing_replicas()
 
                         else:
-                            print(GREEN + "add replicas " + RESET)
                             # If an exisiting member --> connect to new members.
                             time.sleep(1)
                             self.connect_to_new_replicas()
@@ -232,22 +234,22 @@ class Replica():
         replicas to do the same.
         """
 
-        print(GREEN + "connect_to_existing_replicas" + RESET)
+        print(RED + " Entering connect_to_existing_replicas" + RESET)
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)  # IPv4, TCPIP
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
-        print(GREEN + "mutex_acquired in existing" + RESET)
+        print(GREEN + "mutex_acquired in connect_to_existing_replicas" + RESET)
         try:
             while(self.missing_connections()):
                 # Accept a new connection
                 conn, addr = s.accept()
                 addr = addr[0]
                 self.members[addr] = conn
-
+                print(YELLOW + "Connection received in connect_to_existing_replicas" + RESET)
                 data = conn.recv(BUF_SIZE)
-                print(GREEN + "data received in existing" + RESET)
+                print(YELLOW + "data received in connect_to_existing_replicas" + RESET)
                 if data:
                     if self.ckpt_received is False:
                         replica_ckpt = json.loads(data.decode("utf-8"))
@@ -276,17 +278,20 @@ class Replica():
             
             self.quiescence_lock.acquire()
             self.is_in_quiescence = False
+            print(MAGENTA + "Quiescence ended with lock acquired" + RESET)
             self.quiescence_lock.release()
-            print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
+            print(MAGENTA + "mutex_released in connect_to_existing_replicas" + RESET)
 
         except KeyboardInterrupt:
             self.members_mutex.release()
+            print(MAGENTA + "mutex_released in connect_to_existing_replicas" + RESET)
             s.close()
             return
 
         except Exception as e:
             self.members_mutex.release()
+            print(MAGENTA + "mutex_released in connect_to_existing_replicas" + RESET)
             s.close()
             print(e)
 
@@ -295,11 +300,12 @@ class Replica():
         As a replica already part of the network, it needs to
         connect to the new replicas and send them a checkpoint.
         """
-        print(MAGENTA + "Inside connect to new replicas" + RESET)
+        print(RED + " Entering connect_to_new_replicas" + RESET)
         self.quiescence_lock.acquire()
+        #print(GREEN + "queiescence mutex_acquired in connect_to_new_replicas" + RESET)
         self.is_in_quiescence = True
         self.quiescence_lock.release()
-        print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
+        #print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
 
         for addr in self.members:
             if self.members[addr] is None:
@@ -461,9 +467,11 @@ class Replica():
         try:
             while True:
                 while True:
+                    #print(GREEN + "quiescence mutex_acquired in r_to_r" + RESET)
                     self.quiescence_lock.acquire()
                     if self.is_in_quiescence:
                         self.quiescence_lock.release()
+                        #print(MAGENTA + "quiescence mutex_released in r_to_r" + RESET)
                         # We dont process any messages.
                         continue
                     else:
@@ -599,9 +607,11 @@ class Replica():
         """
         while True:
             while True:
+                #print(GREEN + "quiescence mutex_acquired in client_msg_processing_queue" + RESET)
                 self.quiescence_lock.acquire()
                 if self.is_in_quiescence:
                     self.quiescence_lock.release()
+                    #print(MAGENTA + "quiescence mutex_released in client_msg_processing_queue" + RESET)
                     # We dont process any messages.
                     continue
                 else:
