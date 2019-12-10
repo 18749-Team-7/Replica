@@ -449,7 +449,7 @@ class Replica():
             self.client_processed_msg_count[username] = 0
 
         # Insert job in client queue
-        self.client_msg_dict[(username, login_data["clock"])] = login_data
+        # self.client_msg_dict[(username, login_data["clock"])] = login_data
         self.client_msg_queue.put(login_data)
 
         # Receive, process, and retransmit chat messages from this client
@@ -459,7 +459,7 @@ class Replica():
                 data = data.decode("utf-8")
                 data = json.loads(data)
 
-                self.client_msg_dict[(username, data["clock"])] = data
+                # self.client_msg_dict[(username, data["clock"])] = data
                 self.client_msg_queue.put(data)
 
             except:
@@ -634,14 +634,14 @@ class Replica():
                 current_msg = self.client_msg_queue.get()
                 # current_msg --> {"type": "login/logout/send_message", "username":<username>, "clock":0}.
 
-            print(self.client_msg_queue)
             print("Current message is ", current_msg)
             # If the message has already been processed
             if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
                 print (self.client_processed_msg_count[current_msg['username']])
                 print (current_msg["clock"])
                 print("Discarded a previously processed message from at :",current_msg['username'], current_msg["clock"])
-                del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
+                #del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
+
                 continue
             
             # Otherwise have process the message by proposing
