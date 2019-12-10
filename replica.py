@@ -42,7 +42,7 @@ class Replica():
         self.client_processed_msg_count = {}
 
         # Consensus Variables
-        self.is_in_quiescence = True
+        self.is_in_quiescence = False
         self.votes = dict()
         self.current_proposal = None
         self.message_to_commit = None
