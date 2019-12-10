@@ -273,8 +273,10 @@ class Replica():
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
-
+            
+            self.quiescence_lock.acquire()
             self.is_in_quiescence = False
+            self.quiescence_lock.release()
             print(MAGENTA + "Quiescence ended" + RESET)
             self.members_mutex.release()
 
@@ -296,6 +298,7 @@ class Replica():
         print(MAGENTA + "Inside connect to new replicas" + RESET)
         self.quiescence_lock.acquire()
         self.is_in_quiescence = True
+        self.quiescence_lock.release()
         print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
 
         for addr in self.members:
@@ -323,15 +326,16 @@ class Replica():
 
                 except KeyboardInterrupt:
                     s.close()
-                    self.quiescence_lock.release()
+                    # self.quiescence_lock.release()
                     return
 
                 except Exception as e:
                     print(e)
                     s.close()
-                    self.quiescence_lock.release()
+                    #self.quiescence_lock.release()
                     
-
+                    
+        self.quiescence_lock.acquire()
         self.is_in_quiescence = False
         self.quiescence_lock.release()
         print(MAGENTA + "Quiescence ended: Connected to all new replicas." + RESET)
@@ -456,8 +460,14 @@ class Replica():
         """
         try:
             while True:
+                while True:
+                self.quiescence_lock.acquire()
                 if self.is_in_quiescence:
+                    self.quiescence_lock.release()
+                    # We dont process any messages.
                     continue
+                else:
+                    break
 
                 try:
                     connection = self.members[addr]
