@@ -523,12 +523,11 @@ class Replica():
                 data = s.recv(BUF_SIZE)
                 if data:
                     data = json.loads(data.decode("utf-8"))
-                    if data['type'] == 'vote':
-                        print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
-                        self.votes[addr] = data['client_msg']
-
-                    else:
-                        print('Non-vote data recieved: ', data)
+                    # if data['type'] == 'vote':
+                    print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
+                    self.votes[addr] = data
+                    # else:
+                    #     print('Non-vote data recieved: ', data)
 
                 # After populating, votes mutex is released
                 # to check for quorum 
@@ -731,7 +730,7 @@ class Replica():
 
                 # Retain current proposal if it was not chosen by majority
                 # and propose the same proposal in the next round.
-                if self.message_to_commit == self.current_proposal["client_msg"]:
+                if self.message_to_commit == self.current_proposal:
                     self.current_proposal = None
 
                 #del self.client_msg_dict[(username, self.message_to_commit["clock"])]
