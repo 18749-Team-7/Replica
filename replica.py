@@ -579,7 +579,7 @@ class Replica():
         
         # Add current proposal in self.votes
         if self.current_proposal is not None:
-            self.votes([self.ip]) = self.current_proposal
+            self.votes[self.ip] = self.current_proposal
 
         # Now start the couting procedure
         for vote in self.votes.values():
