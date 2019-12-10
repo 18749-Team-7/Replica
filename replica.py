@@ -238,6 +238,7 @@ class Replica():
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
+        print(GREEN + "mutex_acquired in existing" + RESET)
         try:
             while(self.missing_connections()):
                 # Accept a new connection
@@ -246,9 +247,9 @@ class Replica():
                 self.members[addr] = conn
 
                 data = conn.recv(BUF_SIZE)
+                print(GREEN + "data received in existing" + RESET)
                 if data:
                     if self.ckpt_received is False:
-
                         replica_ckpt = json.loads(data.decode("utf-8"))
                         assert(replica_ckpt["type"] == "checkpoint")
                         print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
@@ -292,6 +293,7 @@ class Replica():
         As a replica already part of the network, it needs to
         connect to the new replicas and send them a checkpoint.
         """
+        print(MAGENTA + "Inside connect to new replicas" + RESET)
         self.quiescence_lock.acquire()
         self.is_in_quiescence = True
         print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
