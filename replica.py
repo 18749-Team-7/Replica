@@ -638,8 +638,8 @@ class Replica():
             # If the message has already been processed
             if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
                 print (self.client_processed_msg_count[current_msg['username']])
-                print (self.client_processed_msg_count[current_msg['username']])
-                print("Discarded a previously processed message from at :",current_msg['username'], current_msg["replica_clock"])
+                print (current_msg["clock"]])
+                print("Discarded a previously processed message from at :",current_msg['username'], current_msg["clock"])
                 del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
                 continue
             
