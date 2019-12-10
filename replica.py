@@ -48,6 +48,7 @@ class Replica():
         self.message_to_commit = None
         self.commit_flag = False
 
+
         # Flag to indicate if checkpointing was done
         self.ckpt_received = False
 
@@ -142,7 +143,6 @@ class Replica():
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.ip, self.RM_port))
-
         except Exception as e:
             print(e)
             os.close(1)
@@ -162,37 +162,31 @@ class Replica():
                     data = json.loads(data)
                     print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
 
+                    # Acquiring the Members mutex so that
+                    # votes and processing stops till new membership is updated
+                    # Mutex is acquired only after data is received (i.e membership change is requested)
+                    self.members_mutex.acquire()
+                    print(GREEN + "acquired members mutex in rm thread " + RESET)
                     if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
-                        for replica_ip in data["ip_list"]:
-                            print(replica_ip)
-                        self.members_mutex.acquire()
-                        print(self.members)
-                        print(GREEN + "acquired members mutex in rm thread " + RESET)
                         for replica_ip in data["ip_list"]:
                             if replica_ip in self.members:
                                 print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
                             else:
                                 self.members[replica_ip] = None
-                        self.members_mutex.release()
-                        print(MAGENTA + "releasing members mutex in rm thread " + RESET)
+                        
+                        # If connected as new member --> get states from existing replicas.
+                        if (data["type"] == "all_replicas"):
+                            if self.ip in data["ip_list"]:
+                                del self.members[self.ip]
+                                self.new_replica()
 
-                        if self.ip in data["ip_list"]:
-                            # If connected as new member --> get states from existing replicas.
-                            self.members_mutex.acquire()
-                            print(GREEN + "acquired members mutex in get states from existing replicas " + RESET)
-                            del self.members[self.ip]
-                            self.members_mutex.release()
-                            print(MAGENTA + "releasing members mutex in rget states from existing replicas " + RESET)
-                            self.connect_to_existing_replicas()
-
-                        else:
-                            # If an exisiting member --> connect to new members.
+                        # If an exisiting member --> connect to new members.
+                        elif(data["type"] == "add_replicas"):
                             time.sleep(1)
-                            self.connect_to_new_replicas()
+                            self.old_replica()
                             # data = MAGENTA + replica_ckpt['replica_processed_msg_count'] + replica_ckpt['client_processed_msg_count'] + self.ip + RESET
 
                     elif (data["type"] == "del_replicas"):
-                        self.members_mutex.acquire()
                         for replica_ip in data["ip_list"]:
                             if replica_ip not in self.members:
                                 print(RED + "Received del_replicas ip that was not in membership set" + RESET)
@@ -200,8 +194,6 @@ class Replica():
                                 if (self.members[replica_ip] is not None):
                                     self.members[replica_ip].close() # close the socket to the failed replica
                                 del self.members[replica_ip]
-                        self.members_mutex.release()
-
                     else:
                         print(RED + "Received bad packet type from RM" + RESET)
 
@@ -209,11 +201,19 @@ class Replica():
                     members = [addr for addr in self.members] + [self.ip]
                     print(RED + "Membership Updated: " + str(members) + RESET)
 
+                    #Releasing the mutex to start the processing of votes and client messages
+                    self.members_mutex.release()
+                    print(MAGENTA + "releasing members mutex in rm thread " + RESET)
+
             except KeyboardInterrupt:
-                # members = [addr for addr in self.members] + [self.ip]
-                # print(RED + "Membership Updated: " + str(members) + RESET)
+                #TODO: If killed do we need to release the mutex ?
                 s.close()
                 return
+
+            except Exception as e:
+                #TODO: If killed do we need to release the mutex ?
+                print("Exception occured in RM thread" + str(e))
+                s.close()
 
     def create_replica_checkpoint(self):
         """
@@ -223,33 +223,38 @@ class Replica():
         replica_ckpt["type"] = "checkpoint"
         replica_ckpt["replica_processed_msg_count"] = self.replica_processed_msg_count
         replica_ckpt["client_processed_msg_count"] = self.client_processed_msg_count
-
         replica_ckpt = json.dumps(replica_ckpt)
         return replica_ckpt
 
-    def connect_to_existing_replicas(self):
+    def new_replica(self):
         """
         As a newly joined replica, it needs to recieve checkpoint from the
         exisiting replicas and must also wait for the other newly joined
         replicas to do the same.
         """
 
-        print(RED + " Entering connect_to_existing_replicas" + RESET)
+        print(RED + " Entering new Replica piece of code" + RESET)
+
+        # Initiate a binding to Replica port
         s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)  # IPv4, TCPIP
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((self.ip, self.replica_port))
         s.listen(5)
-        self.members_mutex.acquire()
-        print(GREEN + "mutex_acquired in connect_to_existing_replicas" + RESET)
+
+
         try:
             while(self.missing_connections()):
-                # Accept a new connection
+                # Accept a new connection from existing replicas 
                 conn, addr = s.accept()
                 addr = addr[0]
                 self.members[addr] = conn
-                print(YELLOW + "Connection received in connect_to_existing_replicas" + RESET)
+                print(YELLOW + "Connection received from old replica in new replica" + RESET)
+                # Receiving is a blocking call 
+                # New replica wait untill it receives a data (i.e checkpoint)
+                # untill then it waits for the message
                 data = conn.recv(BUF_SIZE)
-                print(YELLOW + "data received in connect_to_existing_replicas" + RESET)
+                print(YELLOW + "data received in new replica (i.e checkpoint)" + RESET)
+
                 if data:
                     if self.ckpt_received is False:
                         replica_ckpt = json.loads(data.decode("utf-8"))
@@ -260,91 +265,83 @@ class Replica():
                         self.client_processed_msg_count = replica_ckpt["client_processed_msg_count"]
                         self.ckpt_received = True
                     else:
-                        assert(replica_ckpt["type"] == "checkpoint")
-                        checkpoint_msg = {}
-                        checkpoint_msg["type"] = "checkpoint"
-                        checkpoint_msg["replica_processed_msg_count"] = self.replica_processed_msg_count
-                        checkpoint_msg["client_processed_msg_count"] = self.client_processed_msg_count
-                        print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
-                        print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
+                        print(YELLOW + "Second Checkpoint tried (duplicate detected)" + RESET)
+                        # assert(replica_ckpt["type"] == "checkpoint")
+                        # checkpoint_msg = {}
+                        # checkpoint_msg["type"] = "checkpoint"
+                        # checkpoint_msg["replica_processed_msg_count"] = self.replica_processed_msg_count
+                        # checkpoint_msg["client_processed_msg_count"] = self.client_processed_msg_count
+                        # print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
+                        # print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
 
-                # except KeyboardInterrupt:
-                #     s.close()
-                #     return
 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
                 # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
+                # start a new receiving thread for each incoming replica connection
                 threading.Thread(target=self.replica_to_replica_receive_thread, args=(conn,addr), daemon=True).start()
             
-            self.quiescence_lock.acquire()
-            self.is_in_quiescence = False
-            print(MAGENTA + "Quiescence ended with lock acquired" + RESET)
-            self.quiescence_lock.release()
-            self.members_mutex.release()
-            print(MAGENTA + "mutex_released in connect_to_existing_replicas" + RESET)
+
+            # self.is_in_quiescence = False
+            #TODO: wait for two connections ?
+            if(len(self.members)==0):
+                print(MAGENTA + "No Quiescence as there is only one replica" + RESET)
+            else:
+                print(MAGENTA + "Quiescence ended" + RESET)
 
         except KeyboardInterrupt:
-            self.members_mutex.release()
-            print(MAGENTA + "mutex_released in connect_to_existing_replicas" + RESET)
+            #TODO: If killed do we need to release the mutex ?
             s.close()
             return
 
         except Exception as e:
-            self.members_mutex.release()
-            print(MAGENTA + "mutex_released in connect_to_existing_replicas" + RESET)
+            #TODO: If killed do we need to release the mutex ?
             s.close()
-            print(e)
+            print( "Exception occured at new replica regison" + str(e))
 
-    def connect_to_new_replicas(self):
+    def old_replica(self):
         """
         As a replica already part of the network, it needs to
         connect to the new replicas and send them a checkpoint.
         """
-        print(RED + " Entering connect_to_new_replicas" + RESET)
-        self.quiescence_lock.acquire()
-        #print(GREEN + "queiescence mutex_acquired in connect_to_new_replicas" + RESET)
-        self.is_in_quiescence = True
-        self.quiescence_lock.release()
-        #print(MAGENTA + "Quiescence started: Connecting to new replicas" + RESET)
-
+        print(RED + " Entering old replica piece of code" + RESET)
+        
+        #self.is_in_quiescence = True
+        
+        # connect to replicas in members list
         for addr in self.members:
             if self.members[addr] is None:
                 try:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
                     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     s.connect((addr, self.replica_port))
-                    self.members_mutex.acquire()
                     self.members[addr] = s
-                    self.members_mutex.release()
                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
-                    # checkpointing
-                    self.checkpoint_mutex.acquire()
+                    # Set the checkpoint message , which will be sent to new replica
                     replica_ckpt = self.create_replica_checkpoint()
-                    self.checkpoint_mutex.release()
+
                     try:
                         s.send(replica_ckpt.encode("utf-8"))
                         print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
                     except:
                         print(RED + 'Failed while sending a Replica checkpoint to:' + self.members[addr] + RESET)
 
+                    # Create a new Replica to Replica thread
                     threading.Thread(target=self.replica_to_replica_receive_thread, args=(s, addr)).start()
 
                 except KeyboardInterrupt:
+                    #TODO: If killed do we need to release the mutex ?
                     s.close()
-                    # self.quiescence_lock.release()
                     return
 
                 except Exception as e:
-                    print(e)
-                    s.close()
-                    #self.quiescence_lock.release()
+                    print("Exception occured in Old Replica:" + str(e))
+                    s.close() 
                     
-                    
-        self.quiescence_lock.acquire()
-        self.is_in_quiescence = False
-        self.quiescence_lock.release()
-        print(MAGENTA + "Quiescence ended: Connected to all new replicas." + RESET)
+        
+        #self.is_in_quiescence = False
+        
+        
 
     def replica_send_thread(self, s):
         replica_to_replica_count = 0
@@ -454,7 +451,7 @@ class Replica():
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception:
                     self.members_mutex.release()
-                    print('Exception while boardcasting')
+                    print('Exception while broadcasting')
                     self.members[addr].close()
                     continue
         self.members_mutex.release()
