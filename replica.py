@@ -566,25 +566,26 @@ class Replica():
         vote_to_commit = None
         count_votes = defaultdict(lambda: 0)
 
-
         # print("done waiting for current proposal")
 
         # Collect votes
         # First consider the replicas, self.current_proposal
         # print(self.current_proposal)
-        if self.current_proposal["client_msg"]['clock'] == self.client_processed_msg_count[self.current_proposal["client_msg"]["username"]]:
-            count_votes[(self.current_proposal["client_msg"]['username'], self.current_proposal["client_msg"]['clock'])] += 1
-        else:
-            raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
+        # if self.current_proposal["client_msg"]['clock'] == self.client_processed_msg_count[self.current_proposal["client_msg"]["username"]]:
+        
 
-        #print(self.votes)
-        # Now, collect the proposals from rest of the replicas.
+        # #collect votes
+        # count_votes[(self.current_proposal["client_msg"]['username'], self.current_proposal["client_msg"]['clock'])] += 1
+        
+        # Add current proposal in self.votes
+        if self.current_proposal is not None:
+            self.votes([self.ip]) = self.current_proposal
+
+        # Now start the couting procedure
         for vote in self.votes.values():
-            if vote['clock'] == self.client_processed_msg_count[vote['username']]:
+            if vote['clock'] >= self.client_processed_msg_count[vote['username']]:
                 count_votes[(vote['username'], vote['clock'])] += 1
-            else:
-                raise Exception('Recieved a client message with clock (t+k) ahead of (t)!')
-
+                
         #print('count_votes:', count_votes)
         # Check for majority vote:
         for key in count_votes.keys():
@@ -596,7 +597,6 @@ class Replica():
             vote_to_commit = sorted(votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
             print(YELLOW + 'Consensus reached by picking based on alphabetical order of client name with lowest clock!' + RESET)
         else:
-            pass
             print('Consensus Reached by Majority')
 
         for vote in self.votes.values():
@@ -642,11 +642,11 @@ class Replica():
                 continue
             
             # Otherwise have process the message by proposing
-            self.current_proposal = dict()
-            self.current_proposal["type"] = "vote"
-            self.current_proposal["client_msg"] = current_msg
-            self.message_to_commit = None
+            # self.current_proposal = dict()
+            # self.current_proposal["type"] = "vote"
 
+            self.message_to_commit = None
+            self.current_proposal = current_msg
             self.votes_processing = True
             # Mutex lock where processing will be held 
             # if there is a membership change
