@@ -489,8 +489,9 @@ class Replica():
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception as e:
+                    pass
                     #TODO: To release votes mutex 
-                    print(RED + "Exception while broadcasting " + str(e) + RESET)
+                    #print(RED + "Exception while broadcasting " + str(e) + RESET)
                     #self.members[addr].close()
         
         
@@ -523,12 +524,18 @@ class Replica():
                 # starts receiving vote from other replicas
                 data = s.recv(BUF_SIZE)
                 if data:
-                    data = json.loads(data.decode("utf-8"))
-                    if data['type'] == "acknowledgement":
-                        pass
-                    else:
-                        print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
-                        self.votes[addr] = data
+                    try:
+                        data = json.loads(data.decode("utf-8"))
+                        if data['type'] == "acknowledgement":
+                            print(YELLOW  + "acknowledgement" + RESET)
+                            pass
+                        else:
+                            print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
+                            self.votes[addr] = data
+                    except Exception as e:
+                            #TODO: To release votes mutex ?
+                            print(RED + "cannot parse data " + str(e) + RESET)
+                           
                     # else:
                     #     print('Non-vote data recieved: ', data)
 
@@ -543,7 +550,7 @@ class Replica():
             except Exception as e:
                 #TODO: To release votes mutex ?
                 print(RED + "Exception at Replica_to_replica_thread " + str(e) + RESET)
-                s.close()
+                #s.close()
                 return
 
     def process_votes(self,quorum):
