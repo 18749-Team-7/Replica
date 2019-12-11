@@ -295,6 +295,7 @@ class Replica():
             for addr in self.members:
                 try:
                     quiescence_message = dict()
+                    quiescence_message['type'] = "acknowledgement"
                     quiescence_message["text"] = "quiescence_over"
                     quiescence_message = json.dumps(quiescence_message)
                     self.members[addr].send(quiescence_message.encode("utf-8"))
@@ -488,10 +489,10 @@ class Replica():
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception as e:
-                    #TODO: To release votes mutex ?
+                    #TODO: To release votes mutex 
                     print(RED + "Exception while broadcasting " + str(e) + RESET)
                     #self.members[addr].close()
-                continue
+        
         
 
     def replica_to_replica_receive_thread(self, s, addr):
@@ -523,9 +524,11 @@ class Replica():
                 data = s.recv(BUF_SIZE)
                 if data:
                     data = json.loads(data.decode("utf-8"))
-                    # if data['type'] == 'vote':
-                    print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
-                    self.votes[addr] = data
+                    if data['type'] == "acknowledgement":
+                        pass
+                    else:
+                        print(YELLOW  + "Received Vote from:" + str(addr) + RESET)
+                        self.votes[addr] = data
                     # else:
                     #     print('Non-vote data recieved: ', data)
 
@@ -754,7 +757,7 @@ class Replica():
             # if there is a membership change
             # if there is no membership change, it releases the lock and goes to next cycle
             self.members_mutex.release()
-            print(MAGENTA + "released members mutex in client_msg_processing_queue " + RESET)
+            #print(MAGENTA + "released members mutex in client_msg_processing_queue " + RESET)
 
     def chat_server(self):
         # Open listening socket of Replica
