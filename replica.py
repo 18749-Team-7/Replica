@@ -484,7 +484,7 @@ class Replica():
     def broadcast_votes(self):
         # send proposals to all other replicas.
         for addr in self.members:
-            if self.members[addr] is not None:
+            if self.members[addr] is not None and self.current_proposal is not None:
                 try:
                     self.members[addr].send(json.dumps(self.current_proposal).encode('utf-8'))
                 except Exception as e:
@@ -516,7 +516,7 @@ class Replica():
                 while self.votes_processing or self.membership_change:
                     pass
 
-                connection = self.members[addr]
+                # connection = self.members[addr]
                 # connection.settimeout(10)
 
                 # starts receiving vote from other replicas
@@ -592,8 +592,8 @@ class Replica():
                 vote_to_commit = key
 
         if (vote_to_commit is None):
-            min_vote_clock = sorted(votes.keys(), key=lambda ele: ele[1])[0][1]
-            vote_to_commit = sorted(votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
+            min_vote_clock = sorted(self.votes.keys(), key=lambda ele: ele[1])[0][1]
+            vote_to_commit = sorted(self.votes.keys(), key=lambda ele: 'zzzzzz' if ele[1]>min_vote_clock else ele[0])[0]
             print(YELLOW + 'Consensus reached by picking based on alphabetical order of client name with lowest clock!' + RESET)
         else:
             print('Consensus Reached by Majority')
@@ -682,10 +682,6 @@ class Replica():
                     print(YELLOW + "Proposed Vote message is :" + str(self.votes) + RESET)
                     self.process_votes(quorum)
                 
-            
-            # After processing votes, release the processing votes flag
-            # so that votes collection are started for next cycle
-            self.votes_processing = False
 
                 #########################################################
                 ### Broadcast message to be committed to all clients. ###
@@ -750,6 +746,10 @@ class Replica():
                 # print(YELLOW + "(PROC) -> {}".format(current_msg) + RESET)
             
             
+            # After processing votes, release the processing votes flag
+            # so that votes collection are started for next cycle
+            self.votes_processing = False
+
             # Mutex unlock where processing is done 
             # It is released to check for 
             # if there is a membership change
