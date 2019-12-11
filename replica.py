@@ -623,6 +623,13 @@ class Replica():
             3: If the Replicas current proposal was the message that was committed, then
             go to step 1 else broadcast the same current proposal in the next round too.
         """
+
+
+        # untill the new replica acknowledges with a 
+        # quiescence_over state
+        while not self.quiescence_over:
+            pass
+
         while True:
             
             # Get job from the queue and process it
@@ -711,6 +718,7 @@ class Replica():
 
                     print(RED + "Logout from:", username + RESET)
 
+                    
                     broadcast_message_to_clients["type"] = "logout_success"
                     broadcast_message_to_clients["username"] = username
                     broadcast_message_to_clients["text"] = ''
