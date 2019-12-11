@@ -641,16 +641,15 @@ class Replica():
                 current_msg = self.client_msg_queue.get()
                 # current_msg --> {"type": "login/logout/send_message", "username":<username>, "clock":0}.
 
-            print("Current message is ", current_msg)
-            # If the message has already been processed
-            if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
-                print (self.client_processed_msg_count[current_msg['username']])
-                print (current_msg["clock"])
-                print("Discarded a previously processed message from at :",current_msg['username'], current_msg["clock"])
-                #del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
-
-                continue
-            
+                #print("Current message is ", current_msg)
+                # If the message has already been processed
+                if current_msg["clock"] < self.client_processed_msg_count[current_msg['username']]:
+                    #print (self.client_processed_msg_count[current_msg['username']])
+                    #print (current_msg["clock"])
+                    print("Discarded a previously processed message from at :",current_msg['username'], current_msg["clock"])
+                    #del self.client_msg_dict[(current_msg['username'], current_msg["clock"])]
+                    continue
+                
             # Otherwise have process the message by proposing
             # self.current_proposal = dict()
             # self.current_proposal["type"] = "vote"
@@ -662,7 +661,7 @@ class Replica():
             # if there is a membership change
             # if there is no membership chang, it acquires the lock and does the vote processing
             self.members_mutex.acquire()
-            print(YELLOW + "acquired members mutex in client_msg_processing_queue " + RESET)
+            #print(YELLOW + "acquired members mutex in client_msg_processing_queue " + RESET)
 
             self.broadcast_votes()
 
