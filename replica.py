@@ -39,8 +39,11 @@ class Replica():
         self.client_msg_queue = multiprocessing.Queue()
         self.manager = multiprocessing.Manager()
         self.client_msg_dict = self.manager.dict()
-        self.client_proc_msg_count = {}
+        self.per_client_msg_count = {}
         self.is_in_quiescence = True
+
+        # Total order data structures
+        self.votes = self.manager.dict()
 
         # Flag to indicate if checkpoint was done
         self.ckpt_received = False
@@ -66,8 +69,6 @@ class Replica():
         threading.Thread(target=self.rm_thread, daemon=True).start()
 
 
-        # while (not self.good_to_go):
-        #     pass
 
         # Start the chat server
         print(MAGENTA + "Quiescence start" + RESET)
@@ -85,6 +86,11 @@ class Replica():
         s.connect(("8.8.8.8", 80))
         self.host_ip = s.getsockname()[0]
 
+    def print_exception(self):
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(exc_type, fname, exc_tb.tb_lineno)
+
     ###############################################
     # Heartbeat functions
     ###############################################
@@ -100,7 +106,7 @@ class Replica():
                 return
 
             except Exception as e:
-                print(e)
+                self.print_exception()
                 time.sleep(interval)
 
     def start_heartbeat(self, interval):
@@ -111,7 +117,7 @@ class Replica():
             print(RED + "Connected to local fault detector at: " + self.ip + ":" + str(self.HB_port) + RESET)
 
         except Exception as e:
-            print(e)
+            self.print_exception()
             return
 
         threading.Thread(target=self.heartbeat_thread,args=(s, interval), daemon=True).start()
@@ -134,7 +140,7 @@ class Replica():
             s.bind((self.ip, self.RM_port))
 
         except Exception as e:
-            print(e)
+            self.print_exception()
             os.close(1)
 
 
@@ -164,7 +170,6 @@ class Replica():
                     else: # Already member, need to connect to new members
                         time.sleep(1)
                         self.connect_to_new_replicas()
-                        # data = MAGENTA + replica_ckpt['rp_msg_count'] + replica_ckpt['client_proc_msg_count'] + self.ip + RESET
 
                 elif (data["type"] == "del_replicas"):
                     self.members_mutex.acquire()
@@ -219,14 +224,14 @@ class Replica():
 
                             assert(replica_ckpt["type"] == "checkpoint")
                             self.rp_msg_count = replica_ckpt["rp_msg_count"]
-                            self.client_proc_msg_count = replica_ckpt["client_proc_msg_count"]
+                            self.per_client_msg_count = replica_ckpt["per_client_msg_count"]
                             self.ckpt_received = True
                         else:
                             assert(replica_ckpt["type"] == "checkpoint")
                             checkpoint_msg = {}
                             checkpoint_msg["type"] = "checkpoint"
                             checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-                            checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
+                            checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
                             print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
                             print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
                             
@@ -237,8 +242,8 @@ class Replica():
 
                 
                 print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
-                # threading.Thread(target=self.replica_send_thread,args=(conn,), daemon=True).start()
-                threading.Thread(target=self.replica_receive_thread,args=(conn,), daemon=True).start()
+
+                threading.Thread(target=self.replica_receive_thread,args=(conn, addr), daemon=True).start()
 
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence end" + RESET)
@@ -249,7 +254,7 @@ class Replica():
 
         except Exception as e:
             s.close()
-            print(e)
+            self.print_exception()
 
         self.members_mutex.release()
         self.good_to_go = True
@@ -258,6 +263,7 @@ class Replica():
         # Running Replica
 
         self.is_in_quiescence = True
+
         print(MAGENTA + "Quiescence start" + RESET)
 
         for addr in self.members:
@@ -281,8 +287,8 @@ class Replica():
                         print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
                     print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
-                    # threading.Thread(target=self.replica_send_thread,args=(s, )).start()
-                    threading.Thread(target=self.replica_receive_thread,args=(s, )).start()
+
+                    threading.Thread(target=self.replica_receive_thread,args=(s, addr)).start()
 
                 except KeyboardInterrupt:
                     s.close()
@@ -290,39 +296,34 @@ class Replica():
 
                 except Exception as e:
                     s.close()
-                    print(e)
+                    self.print_exception()
 
         self.is_in_quiescence = False
         print(MAGENTA + "Quiescence end" + RESET)
 
 
-    def replica_send_thread(self, s):
-        replica_to_replica_count = 0
-        while True:
-            try:
-                data = YELLOW + "Ping from " + self.ip + " | " + str(replica_to_replica_count) + RESET
-                s.send(data.encode("utf-8"))
-                replica_to_replica_count = replica_to_replica_count + 1
-                time.sleep(1)
-
-            except KeyboardInterrupt:
-                s.close()
-                return
-            except Exception as e:
-                return
-
-    def replica_receive_thread(self, s):
-        while True:
-            try:
+    # Constantly receive votes from other replicas
+    def replica_receive_thread(self, s, addr):
+        try:
+            while True:
                 data = s.recv(BUF_SIZE)
-                data = data.decode("utf-8")
                 if data:
-                    print(data)
-            except KeyboardInterrupt:
-                s.close()
-                return
-            except Exception as e:
-                return
+                    data = data.decode("utf-8")
+                    data = json.loads(data)
+
+                    if (data["type"] == "vote"):
+                        message = data["text"]
+                        self.votes[addr] = message
+
+
+                    else:
+                        print(RED + "Malformed Vote Packet: "+ data["type"] + RESET)
+        except KeyboardInterrupt:
+            s.close()
+            return
+        except Exception as e:
+            self.print_exception()
+            return
     
     ###############################################
     # Chat client functions
@@ -352,6 +353,7 @@ class Replica():
             message["text"] = "Malformed packet"
             message = json.dumps(message)
             s.send(message.encode("utf-8"))
+            print(RED + "Client sent malformed packet, closing socket" + RESET)
             s.close()
             return 
 
@@ -362,6 +364,7 @@ class Replica():
             message["text"] = "Username taken"
             message = json.dumps(message)
             s.send(message.encode("utf-8"))
+            print(RED + "Client username already in use, closing socket" + RESET)
             s.close()
             return     
 
@@ -373,11 +376,11 @@ class Replica():
         self.users[username] = s
         self.users_mutex.release()
 
-        if username not in self.client_proc_msg_count:
-            self.client_proc_msg_count[username] = 0
+        if username not in self.per_client_msg_count:
+            self.per_client_msg_count[username] = 0
 
         # Insert job in client queue
-        while self.is_in_quiescence:
+        if self.is_in_quiescence:
             print(GREEN + "Log: {}".format(login_data) + RESET)
 
         self.client_msg_dict[(username, login_data["clock"])] = login_data
@@ -385,19 +388,36 @@ class Replica():
 
         
         # Receive, process, and retransmit chat messages from the client
+        raw_data = ''
         while True:
             try:
-                data = s.recv(BUF_SIZE)
-                data = data.decode("utf-8")
-                data = json.loads(data)
+                raw_data += s.recv(BUF_SIZE).decode("utf-8")
 
-                while self.is_in_quiescence:
-                    print(GREEN + "Log: {}".format(data) + RESET)
+                while (True): # Fix for Extra Data
+                    start = raw_data.find("{")
+                    end = raw_data.find("}") 
+                    if start==-1 or end==-1:   # if can not find both { and } in string
+                        break
+                    data=json.loads(raw_data[start:end+1])  # only read { ... } and not another uncompleted data
 
-                self.client_msg_dict[(username, data["clock"])] = data
-                self.client_msg_queue.put(data)
+                    if self.is_in_quiescence:
+                        print(GREEN + "Log: {}".format(data) + RESET)
+                    self.client_msg_dict[(username, data["clock"])] = data
+                    self.client_msg_queue.put(data)
 
-            except:
+                    raw_data = raw_data[end+1:]
+
+                # data = json.loads(data)
+
+                # if self.is_in_quiescence:
+                #     print(GREEN + "Log: {}".format(data) + RESET)
+
+                # self.client_msg_dict[(username, data["clock"])] = data
+                # self.client_msg_queue.put(data)
+
+            except Exception as e:
+                self.print_exception()
+
                 print(RED + "{} has disconnected".format(username) + RESET)
                 s.close()
                 return
@@ -408,20 +428,68 @@ class Replica():
         checkpoint_msg = {}
         checkpoint_msg["type"] = "checkpoint"
         checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-        checkpoint_msg["client_proc_msg_count"] = self.client_proc_msg_count
+        checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
 
         checkpoint_msg = json.dumps(checkpoint_msg)
         return checkpoint_msg
     
     # We pop the first message out of the queue and broadcast the vote to all replicas
+    # We also place our own vote into our self.vote dict.
     def broadcast_vote(self, message):
+        vote_msg = {}
+        vote_msg["type"] = "vote"
+        vote_msg["text"] = message
+        vote_msg = json.dumps(vote_msg)
+
+        self.members_mutex.acquire()
+        for _, s_replica in self.members.items():
+            if (s_replica != None):
+                s_replica.send(vote_msg.encode("utf-8"))
+        self.members_mutex.release()
+
+        self.votes[self.host_ip] = message
         pass
 
     # Votes are read by the replica_receive_thread and place them into a set. 
     # Wait.
     # Once the set has been filled with enough votes (num replicas - 1), we commit the message and reset the set.
     def process_votes(self):
-        pass
+        # Make sure every member has a vote. If so, we break and count the votes. Else, we keep waiting.
+        while(True):
+
+            self.members_mutex.acquire()
+            for addr in self.members: 
+                if addr not in self.votes:
+                    continue
+            self.members_mutex.release()
+
+            if self.host_ip not in self.votes:
+                continue
+
+            break
+        
+        # Count votes
+        for addr1, message1 in self.votes:
+            for addr2, message2 in self.votes:
+                if addr1 == addr2: 
+                    pass
+                else:
+                    if message1 == message2:
+                        winning_message = message1
+                        num_votes = len(self.votes)
+                        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
+                        self.votes = {}
+
+                        return winning_message
+
+        # If no majority, force one based on sorted() method
+        winning_replica = sorted(self.votes)[0]
+        winning_message = self.votes[winning_replica]
+        num_votes = len(self.votes)
+        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
+        self.votes = {}
+
+        return winning_message
 
     # Send message to client
     # Update client counts
@@ -445,16 +513,20 @@ class Replica():
             username = data["username"]
 
             # If the message has already been processed
-            if data["clock"] < self.client_proc_msg_count[username]:
+            if data["clock"] < self.per_client_msg_count[username]:
                 del self.client_msg_dict[(username, data["clock"])]
                 continue
 
-            # TODO: Perform Lightweight gossip here, and check if you have the 
-            # message in the dictionary, if not wait for it and then process it.
-            
-            del self.client_msg_dict[(username, data["clock"])]
+            self.broadcast_vote(data)
 
-            self.client_proc_msg_count[username] += 1
+            data = self.process_votes()
+            username = data["username"]
+
+            if data["clock"] < self.per_client_msg_count[username]:
+                print(RED + "ERROR: this should not happen" + RESET)
+
+
+            self.per_client_msg_count[username] += 1
 
             # Print received message here
             print(YELLOW + "(PROC) -> {}".format(data) + RESET)
@@ -478,7 +550,7 @@ class Replica():
                 del self.users[username]
                 self.users_mutex.release()
 
-                del self.client_proc_msg_count[username]
+                del self.per_client_msg_count[username]
 
                 print(RED + "Logout from:", username + RESET)
 
@@ -490,6 +562,7 @@ class Replica():
                 self.broadcast(message)
                 self.rp_msg_count += 1
 
+                print(RED + "Client logging out, closing socket" + RESET)
                 s.close()
 
             # If the client sends a normal chat message
@@ -529,7 +602,7 @@ class Replica():
             s.close()
             print(RED + "Closing chat server on " + str(self.ip) + ":" + str(self.client_port) + RESET)
         except Exception as e:
-            print(e)
+            self.print_exception()
 
 
 def get_args():
