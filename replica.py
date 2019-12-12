@@ -93,6 +93,11 @@ class Replica():
         s.connect(("8.8.8.8", 80))
         self.host_ip = s.getsockname()[0]
 
+    def print_exception(self):
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(exc_type, fname, exc_tb.tb_lineno)
+
     ###############################################
     # Heartbeat functions
     ###############################################
@@ -108,7 +113,7 @@ class Replica():
                 return
 
             except Exception as e:
-                print(e)
+                self.print_exception()
                 time.sleep(interval)
 
     def start_heartbeat(self, interval):
@@ -119,7 +124,7 @@ class Replica():
             print(RED + "Connected to local fault detector at: " + self.ip + ":" + str(self.HB_port) + RESET)
 
         except Exception as e:
-            print(e)
+            self.print_exception()
             return
 
         threading.Thread(target=self.heartbeat_thread,args=(s, interval), daemon=True).start()
@@ -136,7 +141,7 @@ class Replica():
             s.bind((self.ip, self.RM_port))
 
         except Exception as e:
-            print(e)
+            self.print_exception()
             os.close(1)
 
 
@@ -234,7 +239,7 @@ class Replica():
 
         except Exception as e:
             s.close()
-            print(e)
+            self.print_exception()
 
         self.members_mutex.release()
         self.good_to_go = True
@@ -272,7 +277,7 @@ class Replica():
 
                     except Exception as e:
                         s.close()
-                        print(e)
+                        self.print_exception()
 
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence end" + RESET)
@@ -294,7 +299,7 @@ class Replica():
 
                     except Exception as e:
                         s.close()
-                        print(e)
+                        self.print_exception()
 
     
     ###############################################
@@ -321,7 +326,7 @@ class Replica():
 
                 except Exception as e:
                     print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
-                    print(e)
+                    self.print_exception()
 
                 print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
         self.members_mutex.release()
@@ -451,6 +456,7 @@ class Replica():
             message["text"] = "Malformed packet"
             message = json.dumps(message)
             s.send(message.encode("utf-8"))
+            print(RED + "Client sent malformed packet, closing socket" + RESET)
             s.close()
             return 
 
@@ -461,6 +467,7 @@ class Replica():
             message["text"] = "Username taken"
             message = json.dumps(message)
             s.send(message.encode("utf-8"))
+            print(RED + "Client username already in use, closing socket" + RESET)
             s.close()
             return     
 
@@ -485,31 +492,43 @@ class Replica():
         
         # Receive, process, and retransmit chat messages from the client
         try:
+            raw_data = ''
             while True:
                 try:
-                    data = s.recv(BUF_SIZE)
-                    if data:
-                        self.checkpoint_lock.acquire()
-                        data = data.decode("utf-8")
-                        data = json.loads(data)
+                    raw_data += s.recv(BUF_SIZE).decode("utf-8")
+                    if raw_data:
 
-                        while self.is_in_quiescence: #Note that is_in_quiescence should only by true when we are the primary 
-                            print(GREEN + "Log: {}".format(data) + RESET)
+                        while (True): # Fix for Extra Data
+                            start = raw_data.find("{")
+                            end = raw_data.find("}") 
+                            if start==-1 or end==-1:   # if can not find both { and } in string
+                                break
+                            data=json.loads(raw_data[start:end+1])  # only read { ... } and not another uncompleted data
+
+                            self.checkpoint_lock.acquire()
+
+                            while self.is_in_quiescence: #Note that is_in_quiescence should only by true when we are the primary 
+                                print(GREEN + "Log: {}".format(data) + RESET)
 
 
-                        self.client_msg_dict[(username, data["clock"])] = data
-                        self.client_msg_queue.put(data)
+                            self.client_msg_dict[(username, data["clock"])] = data
+                            self.client_msg_queue.put(data)
 
-                        with open(self.log_file_name, 'a') as f:
-                            f.write(str(data))
+                            with open(self.log_file_name, 'a') as f:
+                                f.write(str(data))
 
-                        if (not self.is_primary):
-                            self.size_of_log = self.size_of_log + 1
-                            print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+                            if (not self.is_primary):
+                                self.size_of_log = self.size_of_log + 1
+                                print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
 
-                        self.checkpoint_lock.release()
+                            self.checkpoint_lock.release()
+
+                            raw_data = raw_data[end+1:]
+
+                        
 
                 except:
+                    self.print_exception()
                     print(RED + "{} has disconnected".format(username) + RESET)
                     s.close()
                     return
@@ -626,7 +645,7 @@ class Replica():
             s.close()
             print(RED + "Closing chat server on " + str(self.ip) + ":" + str(self.client_port) + RESET)
         except Exception as e:
-            print(e)
+            self.print_exception()
 
 
 def get_args():
