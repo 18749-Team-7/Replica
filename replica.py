@@ -41,7 +41,7 @@ class Replica():
         self.client_msg_dict = self.manager.dict()
         self.per_client_msg_count = {}
         self.is_in_quiescence = True
-        self.quiesce_lock = Threading.lock()
+        self.quiesce_lock = threading.Lock()
 
         # Total order data structures
         self.votes = {}
@@ -588,7 +588,7 @@ class Replica():
                 message = json.dumps(message)
                 self.broadcast(message)
                 self.rp_msg_count += 1
-                
+
             self.quiesce_lock.release()
     
     def chat_server(self):
