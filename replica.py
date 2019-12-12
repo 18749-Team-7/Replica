@@ -480,7 +480,7 @@ class Replica():
                             winning_message = message1
                             num_votes = len(self.votes)
                             print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
-                            self.votes = {}
+                            self.votes.clear()
 
                             return winning_message
 
@@ -489,7 +489,7 @@ class Replica():
         winning_message = self.votes[winning_replica]
         num_votes = len(self.votes)
         print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
-        self.votes = {}
+        self.votes.clear()
 
         return winning_message
 
