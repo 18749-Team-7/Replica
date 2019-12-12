@@ -468,19 +468,21 @@ class Replica():
 
             break
         
-        # Count votes
-        for addr1, message1 in self.votes:
-            for addr2, message2 in self.votes:
-                if addr1 == addr2: 
-                    pass
-                else:
-                    if message1 == message2:
-                        winning_message = message1
-                        num_votes = len(self.votes)
-                        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
-                        self.votes = {}
+        # If only one replica is alive, do not go in for vote counting
+        if len(self.votes) != 1:
+            # Count votes
+            for addr1, message1 in self.votes:
+                for addr2, message2 in self.votes:
+                    if addr1 == addr2: 
+                        pass
+                    else:
+                        if message1 == message2:
+                            winning_message = message1
+                            num_votes = len(self.votes)
+                            print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
+                            self.votes = {}
 
-                        return winning_message
+                            return winning_message
 
         # If no majority, force one based on sorted() method
         winning_replica = sorted(self.votes)[0]
