@@ -41,9 +41,10 @@ class Replica():
         self.client_msg_dict = self.manager.dict()
         self.per_client_msg_count = {}
         self.is_in_quiescence = True
+        self.quiesce_lock = Threading.lock()
 
         # Total order data structures
-        self.votes = self.manager.dict()
+        self.votes = {}
 
         # Flag to indicate if checkpoint was done
         self.ckpt_received = False
@@ -262,6 +263,7 @@ class Replica():
     def connect_to_new_replicas(self):
         # Running Replica
 
+        self.quiesce_lock.acquire()
         self.is_in_quiescence = True
 
         print(MAGENTA + "Quiescence start" + RESET)
@@ -300,6 +302,7 @@ class Replica():
 
         self.is_in_quiescence = False
         print(MAGENTA + "Quiescence end" + RESET)
+        self.quiesce_lock.release()
 
 
     # Constantly receive votes from other replicas
@@ -455,40 +458,42 @@ class Replica():
     # Once the set has been filled with enough votes (num replicas - 1), we commit the message and reset the set.
     def process_votes(self):
         # Make sure every member has a vote. If so, we break and count the votes. Else, we keep waiting.
-        while(True):
+        continue_flag = True
+        while(continue_flag):
 
+            continue_flag = False
             self.members_mutex.acquire()
             for addr in self.members: 
                 if addr not in self.votes:
-                    continue
+                    continue_flag = True
             self.members_mutex.release()
 
             if self.host_ip not in self.votes:
-                continue
-
-            break
+                continue_flag = True
         
+        print(self.votes)
         # If only one replica is alive, do not go in for vote counting
         if len(self.votes) != 1:
             # Count votes
-            for addr1, message1 in self.votes:
-                for addr2, message2 in self.votes:
+            for addr1, message1 in self.votes.items():
+                for addr2, message2 in self.votes.items():
                     if addr1 == addr2: 
                         pass
                     else:
                         if message1 == message2:
                             winning_message = message1
                             num_votes = len(self.votes)
-                            print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
+                            print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas by majority: " + str(winning_message) + RESET)
                             self.votes.clear()
 
                             return winning_message
 
-        # If no majority, force one based on sorted() method
-        winning_replica = sorted(self.votes)[0]
+        # If no majority, force one based on list() method
+        winning_replica = sorted(self.votes)
+        winning_replica = winning_replica.pop(0)
         winning_message = self.votes[winning_replica]
         num_votes = len(self.votes)
-        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
+        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas by force: " + str(winning_message) + RESET)
         self.votes.clear()
 
         return winning_message
@@ -503,11 +508,13 @@ class Replica():
     def client_msg_queue_proc(self):
         while True:
             # Quiescence control added here
-            while self.is_in_quiescence:
-                continue
+            self.quiesce_lock.acquire()
+            # while self.is_in_quiescence:
+            #     continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
+                self.quiesce_lock.release()
                 continue
             
             # Pop a message from the queue
@@ -517,6 +524,7 @@ class Replica():
             # If the message has already been processed
             if data["clock"] < self.per_client_msg_count[username]:
                 del self.client_msg_dict[(username, data["clock"])]
+                self.quiesce_lock.release()
                 continue
 
             self.broadcast_vote(data)
@@ -580,6 +588,8 @@ class Replica():
                 message = json.dumps(message)
                 self.broadcast(message)
                 self.rp_msg_count += 1
+                
+            self.quiesce_lock.release()
     
     def chat_server(self):
         # Open listening socket of Replica
