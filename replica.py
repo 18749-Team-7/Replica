@@ -464,14 +464,15 @@ class Replica():
             continue_flag = False
             self.members_mutex.acquire()
             for addr in self.members: 
-                if addr not in self.votes:
+                if self.members[addr] == None:
+                    continue
+                if addr not in self.votes :
                     continue_flag = True
             self.members_mutex.release()
 
             if self.host_ip not in self.votes:
                 continue_flag = True
         
-        print(self.votes)
         # If only one replica is alive, do not go in for vote counting
         if len(self.votes) != 1:
             # Count votes
@@ -508,20 +509,26 @@ class Replica():
     def client_msg_queue_proc(self):
         while True:
             # Quiescence control added here
-            self.quiesce_lock.acquire()
-            # while self.is_in_quiescence:
-            #     continue
+            
+            while self.is_in_quiescence:
+                continue
 
             # Get job from the queue and process it
             if self.client_msg_queue.empty():
-                self.quiesce_lock.release()
                 continue
             
+            self.quiesce_lock.acquire()
+
             # Pop a message from the queue
             data = self.client_msg_queue.get()
             username = data["username"]
 
             # If the message has already been processed
+            if username not in self.per_client_msg_count:
+                self.quiesce_lock.release()
+                continue
+
+
             if data["clock"] < self.per_client_msg_count[username]:
                 del self.client_msg_dict[(username, data["clock"])]
                 self.quiesce_lock.release()
