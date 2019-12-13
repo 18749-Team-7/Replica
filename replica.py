@@ -62,7 +62,8 @@ class Replica():
         self.members_mutex = threading.Lock() # Lock on replica members dict
 
         # Start the heartbeat thread
-        self.start_heartbeat(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
+        self.hb_freq = 1
+        self.start_heartbeat() # TODO: Don't hardcode these values. Interval = 1 sec
 
         # Start the RM thread
         # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
@@ -95,12 +96,16 @@ class Replica():
     ###############################################
     # Heartbeat functions
     ###############################################
-    def heartbeat_thread(self, s, interval):
+    def heartbeat_thread(self, s):
         while(True):
             try:
-                packet = '{"type": "heartbeat"}'
+                packet = {}
+                packet["type"] = "heartbeat"
+                packet["time"] = self.hb_freq
+                packet = json.dumps(packet)
                 s.send(packet.encode("utf-8"))
-                time.sleep(interval)
+                
+                time.sleep(self.hb_freq)
 
             except KeyboardInterrupt:
                 s.close()
@@ -108,7 +113,7 @@ class Replica():
 
             except Exception as e:
                 self.print_exception()
-                time.sleep(interval)
+                time.sleep(self.hb_freq)
 
     def start_heartbeat(self, interval):
         try:
@@ -182,6 +187,10 @@ class Replica():
                                 self.members[replica_ip].close() # close the socket to the failed replica
                             del self.members[replica_ip]
                     self.members_mutex.release()
+
+                elif (data["type"] == "chkpt_freq"):
+                    time_val = data["time"]
+                    self.hb_freq = time_val
 
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
