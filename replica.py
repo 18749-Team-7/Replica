@@ -606,6 +606,7 @@ class Replica():
                 self.rp_msg_count += 1
 
             self.quiesce_lock.release()
+            time.sleep(0.2)
     
     def chat_server(self):
         # Open listening socket of Replica
