@@ -335,7 +335,10 @@ class Replica():
         # send message to all clients
         self.users_mutex.acquire()
         for _, s_client in self.users.items():
-            s_client.send(message.encode("utf-8"))
+            try:
+                s_client.send(message.encode("utf-8"))
+            except:
+                pass
         self.users_mutex.release()
         return
 
