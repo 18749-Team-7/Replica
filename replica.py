@@ -533,7 +533,7 @@ class Replica():
 
 
             if data["clock"] < self.per_client_msg_count[username]:
-                del self.client_msg_dict[(username, data["clock"])]
+                # del self.client_msg_dict[(username, data["clock"])]
                 self.quiesce_lock.release()
                 continue
 
