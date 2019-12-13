@@ -460,7 +460,10 @@ class Replica():
         self.members_mutex.acquire()
         for _, s_replica in self.members.items():
             if (s_replica != None):
-                s_replica.send(vote_msg.encode("utf-8"))
+                try:
+                    s_replica.send(vote_msg.encode("utf-8"))
+                except:
+                    pass
         self.members_mutex.release()
 
         self.votes[self.host_ip] = message
