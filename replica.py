@@ -104,7 +104,7 @@ class Replica():
                 packet["time"] = self.hb_freq
                 packet = json.dumps(packet)
                 s.send(packet.encode("utf-8"))
-                
+
                 time.sleep(self.hb_freq)
 
             except KeyboardInterrupt:
@@ -115,7 +115,7 @@ class Replica():
                 self.print_exception()
                 time.sleep(self.hb_freq)
 
-    def start_heartbeat(self, interval):
+    def start_heartbeat(self):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -126,7 +126,7 @@ class Replica():
             self.print_exception()
             return
 
-        threading.Thread(target=self.heartbeat_thread,args=(s, interval), daemon=True).start()
+        threading.Thread(target=self.heartbeat_thread,args=(s, ), daemon=True).start()
 
 
     ###############################################
@@ -190,6 +190,7 @@ class Replica():
 
                 elif (data["type"] == "chkpt_freq"):
                     time_val = data["time"]
+                    print(RED + "Changed heartbeat interval to:" +str(time_val) + "s" + RESET)
                     self.hb_freq = time_val
 
                 else:
