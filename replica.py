@@ -542,10 +542,6 @@ class Replica():
             data = self.process_votes()
             username = data["username"]
 
-            if data["clock"] < self.per_client_msg_count[username]:
-                print(RED + "ERROR: this should not happen" + RESET)
-
-
             self.per_client_msg_count[username] += 1
 
             # Print received message here
