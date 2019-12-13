@@ -543,12 +543,13 @@ class Replica():
             while True:
                 # Primary - process messages
                 if (self.is_primary):
-                    self.quiesce_lock.acquire()
 
                     # Get job from the queue and process it
                     if self.client_msg_queue.empty():
-                        self.quiesce_lock.release()
                         continue
+
+                    self.quiesce_lock.acquire()
+
                     
                     # Pop a message from the queue
                     data = self.client_msg_queue.get()
