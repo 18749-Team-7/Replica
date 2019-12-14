@@ -500,7 +500,7 @@ class Replica():
                         if message1 == message2:
                             winning_message = message1
                             num_votes = len(self.votes)
-                            print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas by majority: " + str(winning_message) + RESET)
+                            print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
                             self.votes.clear()
 
                             return winning_message
@@ -510,7 +510,7 @@ class Replica():
         winning_replica = winning_replica.pop(0)
         winning_message = self.votes[winning_replica]
         num_votes = len(self.votes)
-        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas by force: " + str(winning_message) + RESET)
+        print(CYAN + "Concensus achieved between " + str(num_votes) + " replicas: " + str(winning_message) + RESET)
         self.votes.clear()
 
         return winning_message
