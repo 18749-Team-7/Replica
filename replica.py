@@ -25,59 +25,63 @@ class Replica():
     Main Man
     """
 
-    def __init__(self, verbose=True):
-        self.set_host_ip()
-        self.ip = self.host_ip
-        self.verbose = verbose
-        self.client_port  = 5000
-        self.HB_port      = 10000
-        self.RM_port      = 15000
-        self.replica_port = 20000
+    def __init__(self, replication_type, verbose=True):
+        self.replication_type = replication_type
 
-        # Queues and Dicts
-        self.rp_msg_count = 0
-        self.client_msg_queue = multiprocessing.Queue()
-        self.manager = multiprocessing.Manager()
-        self.client_msg_dict = self.manager.dict()
-        self.per_client_msg_count = {}
-        self.is_in_quiescence = True
-        self.quiesce_lock = threading.Lock()
+        if self.replication_type == "active":
+            self.set_host_ip()
+            self.ip = self.host_ip
+            self.verbose = verbose
+            
+            self.client_port  = 5000
+            self.HB_port      = 10000
+            self.RM_port      = 15000
+            self.replica_port = 20000
 
-        # Total order data structures
-        self.votes = {}
+            # Queues and Dicts
+            self.rp_msg_count = 0
+            self.client_msg_queue = multiprocessing.Queue()
+            self.manager = multiprocessing.Manager()
+            self.client_msg_dict = self.manager.dict()
+            self.per_client_msg_count = {}
+            self.is_in_quiescence = True
+            self.quiesce_lock = threading.Lock()
 
-        # Flag to indicate if checkpoint was done
-        self.ckpt_received = False
+            # Total order data structures
+            self.votes = {}
 
-        self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
+            # Flag to indicate if checkpoint was done
+            self.ckpt_received = False
 
-        # Global variables
-        self.users = dict()
-        self.users_mutex = threading.Lock() # Lock on users dict
+            self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
 
-        self.msg_count = 0
-        self.count_mutex = threading.Lock() # Lock on message_count
+            # Global variables
+            self.users = dict()
+            self.users_mutex = threading.Lock() # Lock on users dict
 
-        self.members = dict()
-        self.members_mutex = threading.Lock() # Lock on replica members dict
+            self.msg_count = 0
+            self.count_mutex = threading.Lock() # Lock on message_count
 
-        # Start the heartbeat thread
-        self.hb_freq = 1
-        self.start_heartbeat() # TODO: Don't hardcode these values. Interval = 1 sec
+            self.members = dict()
+            self.members_mutex = threading.Lock() # Lock on replica members dict
 
-        # Start the RM thread
-        # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
-        # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
-        threading.Thread(target=self.rm_thread, daemon=True).start()
+            # Start the heartbeat thread
+            self.hb_freq = 1
+            self.start_heartbeat() # TODO: Don't hardcode these values. Interval = 1 sec
+
+            # Start the RM thread
+            # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
+            # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
+            threading.Thread(target=self.rm_thread, daemon=True).start()
 
 
 
-        # Start the chat server
-        print(MAGENTA + "Quiescence start" + RESET)
-        # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
-        print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
-        threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
-        self.chat_server()
+            # Start the chat server
+            print(MAGENTA + "Quiescence start" + RESET)
+            # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
+            print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
+            threading.Thread(target=self.client_msg_queue_proc, daemon=True).start()
+            self.chat_server()
 
 
 
@@ -640,6 +644,7 @@ class Replica():
 def get_args():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('-t', '--replication_type', help="Replication Type", default="active")
     parser.add_argument('-v', '--verbose', help="Print every chat message", action='store_true')
 
     args = parser.parse_args()
@@ -649,7 +654,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     args = get_args()
-    replica_obj = Replica(args.verbose)
+    replica_obj = Replica(args.replication_type,args.verbose)
 
     print("\nTotal time taken: " + str(time.time() - start_time) + " seconds")
 
