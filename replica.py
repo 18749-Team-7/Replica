@@ -732,7 +732,7 @@ class Replica():
                 return
 
             except Exception as e:
-                self.print_exception_passive()
+                #self.print_exception_passive()
                 time.sleep(interval)
 
     def start_heartbeat_passive(self, interval):
