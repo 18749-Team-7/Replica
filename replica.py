@@ -258,6 +258,11 @@ class Replica():
                     time_val = data["time"]
                     print(RED + "Changed heartbeat interval to:" +str(time_val) + "s" + RESET)
                     self.hb_freq = time_val
+                
+                elif (data["type"] == "replication_type"):
+                    replica_type = data["replication"]
+                    print(RED + "Changed Replication to:" +str(replica_type) + RESET)
+                    self.replication_type = replica_type
 
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
