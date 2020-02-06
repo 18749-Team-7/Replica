@@ -40,6 +40,7 @@ class Replica():
 
             # Queues and Dicts
             self.rp_msg_count = 0
+            self.main_msg_count = 0
             self.client_msg_queue = multiprocessing.Queue()
             self.manager = multiprocessing.Manager()
             self.client_msg_dict = self.manager.dict()
@@ -65,6 +66,15 @@ class Replica():
             self.members = dict()
             self.members_mutex = threading.Lock() # Lock on replica members dict
 
+            # Passive replication fields
+            self.is_primary = False
+            self.checkpoint_interval = None
+            # self.is_in_quiescence = False # NJ passive false active true
+            self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
+            self.log_file_name = "log.txt"
+            self.size_of_log = 0
+
+
             # Start the heartbeat thread
             self.hb_freq = 1
             self.start_heartbeat_active() # TODO: Don't hardcode these values. Interval = 1 sec
@@ -74,7 +84,8 @@ class Replica():
             # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
             threading.Thread(target=self.rm_thread_active, daemon=True).start()
 
-
+            # Start the checkpoint_send_thread
+            threading.Thread(target=self.checkpoint_send_thread_passive, daemon=True).start()
 
             # Start the chat server
             print(MAGENTA + "Quiescence start" + RESET)
@@ -285,6 +296,8 @@ class Replica():
                     else:
                         print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
                         self.checkpoint_interval = time_val
+                        if self.ip == data["primary"]:
+                            self.is_primary = True
 
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
@@ -353,7 +366,7 @@ class Replica():
                 threading.Thread(target=self.replica_receive_thread_active,args=(conn, addr), daemon=True).start()
 
                 #passive added NJ
-                threading.Thread(target=self.checkpoint_receive_thread_passive, args=(conn, addr, )).start()
+                #threading.Thread(target=self.checkpoint_receive_thread_passive, args=(conn, addr, )).start()
 
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence end" + RESET)
@@ -410,7 +423,7 @@ class Replica():
                     threading.Thread(target=self.replica_receive_thread_active,args=(s, addr)).start()
 
                     #passive added NJ
-                    threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
+                    #threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
 
                 except KeyboardInterrupt:
                     s.close()
@@ -446,18 +459,74 @@ class Replica():
     def replica_receive_thread_active(self, s, addr):
         try:
             while True:
-                data = s.recv(BUF_SIZE)
-                if data:
-                    data = data.decode("utf-8")
-                    data = json.loads(data)
+                #NJ change activer version
+                if self.replication_type == "active":
+                    data = s.recv(BUF_SIZE)
+                    if data:
+                        data = data.decode("utf-8")
+                        data = json.loads(data)
 
-                    if (data["type"] == "vote"):
-                        message = data["text"]
-                        self.votes[addr] = message
+                        if (data["type"] == "vote"):
+                            message = data["text"]
+                            self.votes[addr] = message
 
 
-                    else:
-                        print(RED + "Malformed Vote Packet: "+ data["type"] + RESET)
+                        else:
+                            print(RED + "Malformed Vote Packet: "+ data["type"] + RESET)
+
+                #NJ passive version
+                elif (self.is_primary == False) and (self.replication_type == "passive"):
+                    # conn = self.members[self.primary_ip]
+                    try:
+                        data = s.recv(BUF_SIZE)
+                        if data:
+                            checkpoint_msg = json.loads(data.decode("utf-8"))
+                            assert(checkpoint_msg["type"] == "checkpoint")
+
+                            self.checkpoint_lock.acquire()
+                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+            
+                            self.main_msg_count = checkpoint_msg["main_msg_count"]
+                            self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
+                            self.ckpt_received = True
+
+                            log_list = []
+                            while(not self.client_msg_queue.empty()):
+                                data = self.client_msg_queue.get()
+                                username = data["username"]
+
+                                # Solves the issue of the 
+                                if username not in self.per_client_msg_count:
+                                    # Delete user from the user dictionary
+                                    if username in self.users:
+                                        self.users_mutex.acquire()
+                                        del self.users[username]
+                                        self.users_mutex.release()
+                                    del self.client_msg_dict[(username, data["clock"])]
+                                    continue
+
+                                # Ignore anything already processed as indicated by the checkpoint
+                                if data["clock"] < self.per_client_msg_count[username]:
+                                    del self.client_msg_dict[(username, data["clock"])]
+                                    continue
+
+                                log_list.append(data)
+                            
+                            # Write logs to log file. Use tail -f log.txt to print the logs.
+                            # This allows the logs to be printed in a separate window, so as to
+                            # not interfere with other message types
+                            self.size_of_log = len(log_list)
+                            print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+                            
+                            with open(self.log_file_name, 'w') as f:
+                                for data in log_list:
+                                    f.write(str(data))
+                                    self.client_msg_queue.put(data)
+
+                            self.checkpoint_lock.release()
+                    except:
+                        return
+
         except KeyboardInterrupt:
             s.close()
             return
@@ -465,6 +534,11 @@ class Replica():
             self.print_exception_active()
             return
     
+
+
+
+
+
     ###############################################
     # Chat client functions
     ###############################################
@@ -931,61 +1005,61 @@ class Replica():
     #     self.good_to_go = True
 
     # Connect to any new replicas. If we are the primary, also send a checkpoint to each new replica
-    def connect_to_new_replicas_passive(self):
-        # Running Replica
-        if (self.is_primary):
-            self.quiesce_lock.acquire()
-            self.is_in_quiescence = True
-            print(MAGENTA + "Quiescence start: sending initial checkpoint to new members" + RESET)
+    # def connect_to_new_replicas_passive(self):
+    #     # Running Replica
+    #     if (self.is_primary):
+    #         self.quiesce_lock.acquire()
+    #         self.is_in_quiescence = True
+    #         print(MAGENTA + "Quiescence start: sending initial checkpoint to new members" + RESET)
 
-            for addr in self.members:
-                if self.members[addr] == None:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    try:
-                        s.connect((addr, self.replica_port))
-                        self.members_mutex.acquire()
-                        self.members[addr] = s
-                        self.members_mutex.release()
-                        print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
+    #         for addr in self.members:
+    #             if self.members[addr] == None:
+    #                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+    #                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #                 try:
+    #                     s.connect((addr, self.replica_port))
+    #                     self.members_mutex.acquire()
+    #                     self.members[addr] = s
+    #                     self.members_mutex.release()
+    #                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
-                        # checkpointing
-                        replica_ckpt = self.create_checkpoint_passive()
+    #                     # checkpointing
+    #                     replica_ckpt = self.create_checkpoint_passive()
 
-                        try:
-                            s.send(replica_ckpt.encode("utf-8"))
-                        except:
-                            print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+    #                     try:
+    #                         s.send(replica_ckpt.encode("utf-8"))
+    #                     except:
+    #                         print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
-                        print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+    #                     print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
 
-                        threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
+    #                     threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
 
-                    except Exception as e:
-                        s.close()
-                        self.print_exception_passive()
+    #                 except Exception as e:
+    #                     s.close()
+    #                     self.print_exception_passive()
 
-            self.is_in_quiescence = False
-            print(MAGENTA + "Quiescence end" + RESET)
-            self.quiesce_lock.release()
+    #         self.is_in_quiescence = False
+    #         print(MAGENTA + "Quiescence end" + RESET)
+    #         self.quiesce_lock.release()
 
-        else:
-            for addr in self.members:
-                if self.members[addr] == None:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    try:
-                        s.connect((addr, self.replica_port))
-                        self.members_mutex.acquire()
-                        self.members[addr] = s
-                        self.members_mutex.release()
-                        print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
+    #     else:
+    #         for addr in self.members:
+    #             if self.members[addr] == None:
+    #                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+    #                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #                 try:
+    #                     s.connect((addr, self.replica_port))
+    #                     self.members_mutex.acquire()
+    #                     self.members[addr] = s
+    #                     self.members_mutex.release()
+    #                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
-                        threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
+    #                     threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
 
-                    except Exception as e:
-                        s.close()
-                        self.print_exception_passive()
+    #                 except Exception as e:
+    #                     s.close()
+    #                     self.print_exception_passive()
 
 
     ###############################################
@@ -996,7 +1070,9 @@ class Replica():
         self.quiesce_lock.acquire()
         print(MAGENTA + "Quiescence start: sending checkpoint" + RESET)
         self.is_in_quiescence = True
-        checkpoint_msg = self.create_checkpoint_passive()
+        # NJ change passive to active
+        checkpoint_msg = self.create_checkpoint_active()
+        # checkpoint_msg = self.create_checkpoint_passive()
 
         self.members_mutex.acquire()
         for addr in self.members:
@@ -1024,16 +1100,19 @@ class Replica():
     # If we are the primary, broadcast a checkpoint out to all members every self.checkpoint_interval
     def checkpoint_send_thread_passive(self):
         try:
-            # Wait until we actually receive a checkpoint interval
-            while(self.checkpoint_interval == None):
-                pass
-
             while(1):
-                if (self.is_primary):
-                    self.send_checkpoint_passive()
-
-                    # Sleep for checkpoint_interval
-                    time.sleep(self.checkpoint_interval)
+                if self.replication_type == "passive":
+                    
+                    # Wait until we actually receive a checkpoint interval
+                    while(self.checkpoint_interval == None):
+                        pass
+                    #print("hi")
+                    while(1):
+                        
+                        if (self.is_primary):
+                            self.send_checkpoint_passive()
+                            # Sleep for checkpoint_interval
+                            time.sleep(self.checkpoint_interval)
 
         except KeyboardInterrupt:
             print(RED + "Checkpoint send thread terminated by KeyboardInterrupt" + RESET)
@@ -1042,75 +1121,75 @@ class Replica():
     # If we are a backup, receive checkpoint and update state. 
     # One of these threads is created for every member, primary or not.
     # We assume only the primary will send a checkpoint message, while the backups remain silent.
-    def checkpoint_receive_thread_passive(self, s, addr):
-        try:
-            while(1):
-                if (self.is_primary == False) and (self.replication_type == "passive"):
-                    # conn = self.members[self.primary_ip]
-                    try:
-                        data = s.recv(BUF_SIZE)
-                        if data:
-                            checkpoint_msg = json.loads(data.decode("utf-8"))
-                            assert(checkpoint_msg["type"] == "checkpoint")
+    # def checkpoint_receive_thread_passive(self, s, addr):
+    #     try:
+    #         while(1):
+    #             if (self.is_primary == False) and (self.replication_type == "passive"):
+    #                 # conn = self.members[self.primary_ip]
+    #                 try:
+    #                     data = s.recv(BUF_SIZE)
+    #                     if data:
+    #                         checkpoint_msg = json.loads(data.decode("utf-8"))
+    #                         assert(checkpoint_msg["type"] == "checkpoint")
 
-                            self.checkpoint_lock.acquire()
-                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+    #                         self.checkpoint_lock.acquire()
+    #                         print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
             
-                            self.main_msg_count = checkpoint_msg["main_msg_count"]
-                            self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
-                            self.ckpt_received = True
+    #                         self.main_msg_count = checkpoint_msg["main_msg_count"]
+    #                         self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
+    #                         self.ckpt_received = True
 
-                            log_list = []
-                            while(not self.client_msg_queue.empty()):
-                                data = self.client_msg_queue.get()
-                                username = data["username"]
+    #                         log_list = []
+    #                         while(not self.client_msg_queue.empty()):
+    #                             data = self.client_msg_queue.get()
+    #                             username = data["username"]
 
-                                # Solves the issue of the 
-                                if username not in self.per_client_msg_count:
-                                    # Delete user from the user dictionary
-                                    if username in self.users:
-                                        self.users_mutex.acquire()
-                                        del self.users[username]
-                                        self.users_mutex.release()
-                                    del self.client_msg_dict[(username, data["clock"])]
-                                    continue
+    #                             # Solves the issue of the 
+    #                             if username not in self.per_client_msg_count:
+    #                                 # Delete user from the user dictionary
+    #                                 if username in self.users:
+    #                                     self.users_mutex.acquire()
+    #                                     del self.users[username]
+    #                                     self.users_mutex.release()
+    #                                 del self.client_msg_dict[(username, data["clock"])]
+    #                                 continue
 
-                                # Ignore anything already processed as indicated by the checkpoint
-                                if data["clock"] < self.per_client_msg_count[username]:
-                                    del self.client_msg_dict[(username, data["clock"])]
-                                    continue
+    #                             # Ignore anything already processed as indicated by the checkpoint
+    #                             if data["clock"] < self.per_client_msg_count[username]:
+    #                                 del self.client_msg_dict[(username, data["clock"])]
+    #                                 continue
 
-                                log_list.append(data)
+    #                             log_list.append(data)
                             
-                            # Write logs to log file. Use tail -f log.txt to print the logs.
-                            # This allows the logs to be printed in a separate window, so as to
-                            # not interfere with other message types
-                            self.size_of_log = len(log_list)
-                            print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+    #                         # Write logs to log file. Use tail -f log.txt to print the logs.
+    #                         # This allows the logs to be printed in a separate window, so as to
+    #                         # not interfere with other message types
+    #                         self.size_of_log = len(log_list)
+    #                         print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
                             
-                            with open(self.log_file_name, 'w') as f:
-                                for data in log_list:
-                                    f.write(str(data))
-                                    self.client_msg_queue.put(data)
+    #                         with open(self.log_file_name, 'w') as f:
+    #                             for data in log_list:
+    #                                 f.write(str(data))
+    #                                 self.client_msg_queue.put(data)
 
-                            self.checkpoint_lock.release()
-                    except:
-                        return
+    #                         self.checkpoint_lock.release()
+    #                 except:
+    #                     return
 
-        except KeyboardInterrupt:
-            print(RED + "Checkpoint receive thread terminated by KeyboardInterrupt" + RESET)
-            return
+    #     except KeyboardInterrupt:
+    #         print(RED + "Checkpoint receive thread terminated by KeyboardInterrupt" + RESET)
+    #         return
 
     # Creates a checkpoint message
-    def create_checkpoint_passive(self):
-        assert(self.is_in_quiescence)
-        checkpoint_msg = {}
-        checkpoint_msg["type"] = "checkpoint"
-        checkpoint_msg["main_msg_count"] = self.main_msg_count
-        checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+    # def create_checkpoint_passive(self):
+    #     assert(self.is_in_quiescence)
+    #     checkpoint_msg = {}
+    #     checkpoint_msg["type"] = "checkpoint"
+    #     checkpoint_msg["main_msg_count"] = self.main_msg_count
+    #     checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
 
-        checkpoint_msg = json.dumps(checkpoint_msg)
-        return checkpoint_msg
+    #     checkpoint_msg = json.dumps(checkpoint_msg)
+    #     return checkpoint_msg
 
 
     ###############################################
