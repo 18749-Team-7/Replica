@@ -256,12 +256,12 @@ class Replica():
 
                 elif (data["type"] == "chkpt_freq"):
                     time_val = data["time"]
-                    print(RED + "Changed heartbeat interval to:" +str(time_val) + "s" + RESET)
+                    print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
                     self.hb_freq = time_val
                 
                 elif (data["type"] == "replication_type"):
                     replica_type = data["replication"]
-                    print(RED + "Changed Replication to:" +str(replica_type) + RESET)
+                    print(GREEN + "Changed Replication to: " +str(replica_type) + RESET)
                     self.replication_type = replica_type
 
                 else:
