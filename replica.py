@@ -178,8 +178,10 @@ class Replica():
                 return
 
             except Exception as e:
-                self.print_exception_active()
+                #self.print_exception_active()
                 time.sleep(self.hb_freq)
+    
+   
 
     def start_heartbeat_active(self):
         try:
@@ -204,6 +206,8 @@ class Replica():
             print("Current Membership Set:" +str(members))
             time.sleep(interval)
 
+                
+
     def rm_thread_active(self):
         # Use port 15000 for RM
         try:
@@ -215,6 +219,7 @@ class Replica():
             self.print_exception_active()
             os.close(1)
 
+    
 
         while True:
             try:
@@ -231,6 +236,13 @@ class Replica():
                         else: 
                             self.members[replica_ip] = None
                     self.members_mutex.release()
+
+                    # passive NJ change
+                    if self.replication_type != "active":
+                        if self.ip == data["primary"]:
+                            self.is_primary = True
+                        # else:
+                        #     self.primary_ip = data["primary"]
 
                     if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
                         self.members_mutex.acquire()
@@ -254,15 +266,25 @@ class Replica():
                             del self.members[replica_ip]
                     self.members_mutex.release()
 
-                elif (data["type"] == "chkpt_freq"):
-                    time_val = data["time"]
-                    print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
-                    self.hb_freq = time_val
+                    # passive NJ change
+                    if self.replication_type != "active":
+                        if self.ip == data["primary"]:
+                            self.is_primary = True
                 
                 elif (data["type"] == "replication_type"):
                     replica_type = data["replication"]
                     print(GREEN + "Changed Replication to: " +str(replica_type) + RESET)
                     self.replication_type = replica_type
+                    
+
+                elif (data["type"] == "chkpt_freq"):
+                    time_val = data["time"]
+                    if self.replication_type == "active":
+                        print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
+                        self.hb_freq = time_val
+                    else:
+                        print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
+                        self.checkpoint_interval = time_val
 
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
@@ -274,6 +296,7 @@ class Replica():
             except KeyboardInterrupt:
                 s.close()
                 return
+                
 
     def missing_connections_active(self):
         for addr in self.members:
@@ -289,6 +312,7 @@ class Replica():
         s.bind((self.ip, self.replica_port))
         s.listen(5)
         self.members_mutex.acquire()
+        
         try:
             while(self.missing_connections_active()):
                 # Accept a new connection
@@ -297,6 +321,7 @@ class Replica():
                 self.members[addr] = conn
 
                 try:
+                    # might be only for active NJ
                     data = conn.recv(BUF_SIZE)
                     if data:
                         if not self.ckpt_received:
@@ -327,6 +352,9 @@ class Replica():
 
                 threading.Thread(target=self.replica_receive_thread_active,args=(conn, addr), daemon=True).start()
 
+                #passive added NJ
+                threading.Thread(target=self.checkpoint_receive_thread_passive, args=(conn, addr, )).start()
+
             self.is_in_quiescence = False
             print(MAGENTA + "Quiescence end" + RESET)
      
@@ -340,15 +368,19 @@ class Replica():
 
         self.members_mutex.release()
         self.good_to_go = True
+            
+
 
     def connect_to_new_replicas_active(self):
         # Running Replica
 
+        # if ((self.replication_type == "active") or(self.is_primary)):
         self.quiesce_lock.acquire()
         self.is_in_quiescence = True
 
         print(MAGENTA + "Quiescence start" + RESET)
 
+        
         for addr in self.members:
             if self.members[addr] == None:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
@@ -361,17 +393,24 @@ class Replica():
                     print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
                     # print(s)
 
-                    # checkpointing
-                    replica_ckpt = self.create_checkpoint_active()
+                    if ((self.replication_type == "active") or(self.is_primary)):
+                        # checkpointing
+                        replica_ckpt = self.create_checkpoint_active()
 
-                    try:
-                        s.send(replica_ckpt.encode("utf-8"))
-                    except:
-                        print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+                        try:
+                            s.send(replica_ckpt.encode("utf-8"))
+                        except:
+                            print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
 
-                    print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+                        print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+
+                    else:
+                        print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
 
                     threading.Thread(target=self.replica_receive_thread_active,args=(s, addr)).start()
+
+                    #passive added NJ
+                    threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
 
                 except KeyboardInterrupt:
                     s.close()
@@ -385,6 +424,23 @@ class Replica():
         print(MAGENTA + "Quiescence end" + RESET)
         self.quiesce_lock.release()
 
+        # else:
+        #     for addr in self.members:
+        #         if self.members[addr] == None:
+        #             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+        #             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        #             try:
+        #                 s.connect((addr, self.replica_port))
+        #                 self.members_mutex.acquire()
+        #                 self.members[addr] = s
+        #                 self.members_mutex.release()
+        #                 print(RED + "Connected to new replica at: " + addr + ":" + str(self.replica_port) + RESET)
+
+        #                 threading.Thread(target=self.checkpoint_receive_thread_passive, args=(s, addr, )).start()
+
+        #             except Exception as e:
+        #                 s.close()
+        #                 self.print_exception_passive()
 
     # Constantly receive votes from other replicas
     def replica_receive_thread_active(self, s, addr):
@@ -514,11 +570,17 @@ class Replica():
     def create_checkpoint_active(self):
         checkpoint_msg = {}
         checkpoint_msg["type"] = "checkpoint"
-        checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-        checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+        if self.replication_type == "active":
+            checkpoint_msg["rp_msg_count"] = self.rp_msg_count
+            checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+        else:
+            checkpoint_msg["main_msg_count"] = self.main_msg_count
+            checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+
 
         checkpoint_msg = json.dumps(checkpoint_msg)
         return checkpoint_msg
+
     
     # We pop the first message out of the queue and broadcast the vote to all replicas
     # We also place our own vote into our self.vote dict.
@@ -711,162 +773,162 @@ class Replica():
         # Passive Replication Supporting functions
     ###############################################
 
-    def set_host_ip_passive(self):
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.connect(("8.8.8.8", 80))
-            self.host_ip = s.getsockname()[0]
+    # def set_host_ip_passive(self):
+    #         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #         s.connect(("8.8.8.8", 80))
+    #         self.host_ip = s.getsockname()[0]
 
-    def print_exception_passive(self):
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        print(exc_type, fname, exc_tb.tb_lineno)
+    # def print_exception_passive(self):
+    #     exc_type, exc_obj, exc_tb = sys.exc_info()
+    #     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    #     print(exc_type, fname, exc_tb.tb_lineno)
 
     ###############################################
     # Heartbeat functions
     ###############################################
-    def heartbeat_thread_passive(self, s, interval):
-        while(True):
-            try:
-                packet = '{"type": "heartbeat"}'
-                s.send(packet.encode("utf-8"))
-                time.sleep(interval)
+    # def heartbeat_thread_passive(self, s, interval):
+    #     while(True):
+    #         try:
+    #             packet = '{"type": "heartbeat"}'
+    #             s.send(packet.encode("utf-8"))
+    #             time.sleep(interval)
 
-            except KeyboardInterrupt:
-                s.close()
-                return
+    #         except KeyboardInterrupt:
+    #             s.close()
+    #             return
 
-            except Exception as e:
-                #self.print_exception_passive()
-                time.sleep(interval)
+    #         except Exception as e:
+    #             #self.print_exception_passive()
+    #             time.sleep(interval)
 
-    def start_heartbeat_passive(self, interval):
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.connect((self.ip, self.HB_port))
-            print(RED + "Connected to local fault detector at: " + self.ip + ":" + str(self.HB_port) + RESET)
+    # def start_heartbeat_passive(self, interval):
+    #     try:
+    #         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCPIP
+    #         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #         s.connect((self.ip, self.HB_port))
+    #         print(RED + "Connected to local fault detector at: " + self.ip + ":" + str(self.HB_port) + RESET)
 
-        except Exception as e:
-            self.print_exception_passive()
-            return
+    #     except Exception as e:
+    #         self.print_exception_passive()
+    #         return
 
-        threading.Thread(target=self.heartbeat_thread_passive,args=(s, interval), daemon=True).start()
+    #     threading.Thread(target=self.heartbeat_thread_passive,args=(s, interval), daemon=True).start()
 
 
     ###############################################
     # Replica Membership functions
     ###############################################
-    def rm_thread_passive(self):
-        # Use port 15000 for RM
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((self.ip, self.RM_port))
+    # def rm_thread_passive(self):
+    #     # Use port 15000 for RM
+    #     try:
+    #         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
+    #         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #         s.bind((self.ip, self.RM_port))
 
-        except Exception as e:
-            self.print_exception_passive()
-            os.close(1)
-
-
-        while True:
-            try:
-                data,_ = s.recvfrom(BUF_SIZE)
-                data = data.decode("utf-8")
-                data = json.loads(data)
-                print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
-
-                if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
-                    self.members_mutex.acquire()
-                    for replica_ip in data["ip_list"]:
-                        if replica_ip in self.members:
-                            print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
-                        else: 
-                            self.members[replica_ip] = None
-                    self.members_mutex.release()
-
-                    if self.ip == data["primary"]:
-                        self.is_primary = True
-                    # else:
-                    #     self.primary_ip = data["primary"]
-
-                    if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
-                        self.members_mutex.acquire()
-                        del self.members[self.ip]
-                        self.members_mutex.release()
-                        print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET) 
-                        self.get_connection_from_old_replicas_passive()
-
-                    else: # Already member, need to connect to new members
-                        time.sleep(1) # delay to allow new members to start listening for connection
-                        self.connect_to_new_replicas_passive()
-
-                elif (data["type"] == "del_replicas"):
-                    self.members_mutex.acquire()
-                    for replica_ip in data["ip_list"]:
-                        if replica_ip not in self.members:
-                            print(RED + "Received del_replicas ip that was not in membership set" + RESET)
-                        else:
-                            if (self.members[replica_ip] != None):
-                                self.members[replica_ip].close() # close the socket to the failed replica
-                            del self.members[replica_ip]
-
-                            # Set primary_ip to None, if the primary was deleted
-                            # if (self.primary_ip == replica_ip):
-                            #     self.primary_ip = None
-                    self.members_mutex.release()
-
-                    if self.ip == data["primary"]:
-                        self.is_primary = True
+    #     except Exception as e:
+    #         self.print_exception_passive()
+    #         os.close(1)
 
 
-                elif (data["type"] == "chkpt_freq"):
-                    time_val = data["time"]
-                    self.checkpoint_interval = time_val
-                    print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
+    #     while True:
+    #         try:
+    #             data,_ = s.recvfrom(BUF_SIZE)
+    #             data = data.decode("utf-8")
+    #             data = json.loads(data)
+    #             print(YELLOW + "(RECV) -> RM: "+ str(data) + RESET)
+
+    #             if (data["type"] == "all_replicas" or data["type"] == "add_replicas"):
+    #                 self.members_mutex.acquire()
+    #                 for replica_ip in data["ip_list"]:
+    #                     if replica_ip in self.members:
+    #                         print(RED + "Received add_replicas ip (" + replica_ip + ") that was already in membership set" + RESET)
+    #                     else: 
+    #                         self.members[replica_ip] = None
+    #                 self.members_mutex.release()
+
+    #                 if self.ip == data["primary"]:
+    #                     self.is_primary = True
+    #                 # else:
+    #                 #     self.primary_ip = data["primary"]
+
+    #                 if self.ip in data["ip_list"]: # First connected as new member, need to get state from other members
+    #                     self.members_mutex.acquire()
+    #                     del self.members[self.ip]
+    #                     self.members_mutex.release()
+    #                     print(RED + "Saw own IP. Getting checkpoint from other replicas" + RESET) 
+    #                     self.get_connection_from_old_replicas_passive()
+
+    #                 else: # Already member, need to connect to new members
+    #                     time.sleep(1) # delay to allow new members to start listening for connection
+    #                     self.connect_to_new_replicas_passive()
+
+    #             elif (data["type"] == "del_replicas"):
+    #                 self.members_mutex.acquire()
+    #                 for replica_ip in data["ip_list"]:
+    #                     if replica_ip not in self.members:
+    #                         print(RED + "Received del_replicas ip that was not in membership set" + RESET)
+    #                     else:
+    #                         if (self.members[replica_ip] != None):
+    #                             self.members[replica_ip].close() # close the socket to the failed replica
+    #                         del self.members[replica_ip]
+
+    #                         # Set primary_ip to None, if the primary was deleted
+    #                         # if (self.primary_ip == replica_ip):
+    #                         #     self.primary_ip = None
+    #                 self.members_mutex.release()
+
+    #                 if self.ip == data["primary"]:
+    #                     self.is_primary = True
 
 
-                else:
-                    print(RED + "Received bad packet type from RM" + RESET)
+    #             elif (data["type"] == "chkpt_freq"):
+    #                 time_val = data["time"]
+    #                 self.checkpoint_interval = time_val
+    #                 print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
 
-                # Print out the new membership set
-                members = [addr for addr in self.members] + [self.ip]
-                print(RED + "Updated Membership Set: " +str(members) + RESET)
 
-            except KeyboardInterrupt:
-                s.close()
-                return
+    #             else:
+    #                 print(RED + "Received bad packet type from RM" + RESET)
 
-    def missing_connections_passive(self):
-        for addr in self.members:
-            if (self.members[addr] == None):
-                return True
-        return False
+    #             # Print out the new membership set
+    #             members = [addr for addr in self.members] + [self.ip]
+    #             print(RED + "Updated Membership Set: " +str(members) + RESET)
 
-    def get_connection_from_old_replicas_passive(self):
-        # For a new Replica
-        s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((self.ip, self.replica_port))
-        s.listen(5)
-        self.members_mutex.acquire()
-        try:
-            while(self.missing_connections_passive()):
-                # Accept a new connection
-                conn, addr = s.accept()
-                addr = addr[0]
-                self.members[addr] = conn
+    #         except KeyboardInterrupt:
+    #             s.close()
+    #             return
 
-                print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
+    # def missing_connections_passive(self):
+    #     for addr in self.members:
+    #         if (self.members[addr] == None):
+    #             return True
+    #     return False
 
-                threading.Thread(target=self.checkpoint_receive_thread_passive, args=(conn, addr, )).start()
+    # def get_connection_from_old_replicas_passive(self):
+    #     # For a new Replica
+    #     s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) # IPv4, TCPIP
+    #     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #     s.bind((self.ip, self.replica_port))
+    #     s.listen(5)
+    #     self.members_mutex.acquire()
+    #     try:
+    #         while(self.missing_connections_passive()):
+    #             # Accept a new connection
+    #             conn, addr = s.accept()
+    #             addr = addr[0]
+    #             self.members[addr] = conn
 
-        except Exception as e:
-            s.close()
-            self.print_exception_passive()
+    #             print(RED + "Received connection from existing replica at" + addr + ":" + str(self.replica_port) + RESET)
 
-        self.members_mutex.release()
-        self.good_to_go = True
+    #             threading.Thread(target=self.checkpoint_receive_thread_passive, args=(conn, addr, )).start()
+
+    #     except Exception as e:
+    #         s.close()
+    #         self.print_exception_passive()
+
+    #     self.members_mutex.release()
+    #     self.good_to_go = True
 
     # Connect to any new replicas. If we are the primary, also send a checkpoint to each new replica
     def connect_to_new_replicas_passive(self):
@@ -983,7 +1045,7 @@ class Replica():
     def checkpoint_receive_thread_passive(self, s, addr):
         try:
             while(1):
-                if (self.is_primary == False): #and (self.primary_ip != None):
+                if (self.is_primary == False) and (self.replication_type == "passive"):
                     # conn = self.members[self.primary_ip]
                     try:
                         data = s.recv(BUF_SIZE)
