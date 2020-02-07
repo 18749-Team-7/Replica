@@ -629,7 +629,7 @@ class Replica():
                     else:
                         self.checkpoint_lock.acquire()
 
-                        while self.is_in_quiescence: #Note that is_in_quiescence should only by true when we are the primary 
+                        if self.is_in_quiescence: #Note that is_in_quiescence should only by true when we are the primary 
                             print(GREEN + "Log: {}".format(data) + RESET)
 
 
