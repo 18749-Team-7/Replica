@@ -66,6 +66,7 @@ class Replica():
             self.members = dict()
             self.members_mutex = threading.Lock() # Lock on replica members dict
 
+            self.members_mutex = threading.Lock() # Lock on replica members dict
             # Passive replication fields
             self.is_primary = False
             self.checkpoint_interval = None
@@ -293,12 +294,13 @@ class Replica():
                     if self.replication_type == "active":
                         print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
                         self.hb_freq = time_val
-                        self.is_in_quiescence = False
+                        self.is_in_quiescence = True
                     else:
                         print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
                         self.checkpoint_interval = time_val
                         if self.ip == data["primary"]:
                             self.is_primary = True
+                        self.is_in_quiescence = False
                     self.quiesce_lock.release()
 
                 else:
