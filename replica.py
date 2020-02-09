@@ -229,8 +229,6 @@ class Replica():
             self.print_exception_active()
             os.close(1)
 
-    
-
         while True:
             try:
                 data,_ = s.recvfrom(BUF_SIZE)
@@ -282,12 +280,15 @@ class Replica():
                     #         self.is_primary = True
                 
                 elif (data["type"] == "replication_type"):
+                    self.quiesce_lock.acquire()
                     replica_type = data["replication"]
                     print(GREEN + "Changed Replication to: " +str(replica_type) + RESET)
                     self.replication_type = replica_type
+                    self.quiesce_lock.release()
                     
 
                 elif (data["type"] == "chkpt_freq"):
+                    self.quiesce_lock.acquire()
                     time_val = data["time"]
                     if self.replication_type == "active":
                         print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
@@ -297,7 +298,8 @@ class Replica():
                         self.checkpoint_interval = time_val
                         if self.ip == data["primary"]:
                             self.is_primary = True
-
+                    self.quiesce_lock.release()
+                    
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
 
