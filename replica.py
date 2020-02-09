@@ -294,7 +294,7 @@ class Replica():
                     if self.replication_type == "active":
                         print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
                         self.hb_freq = time_val
-                        self.is_in_quiescence = True
+                        #self.is_in_quiescence = True
                     else:
                         print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
                         self.checkpoint_interval = time_val
