@@ -299,7 +299,7 @@ class Replica():
                         if self.ip == data["primary"]:
                             self.is_primary = True
                     self.quiesce_lock.release()
-                    
+
                 else:
                     print(RED + "Received bad packet type from RM" + RESET)
 
@@ -765,7 +765,9 @@ class Replica():
         while True:
             # Quiescence control added here
             if self.replication_type == "active" or (self.is_primary):
+                
                 while self.is_in_quiescence:
+                    print("loop ")
                     continue
 
                 
