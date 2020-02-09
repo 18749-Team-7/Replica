@@ -109,7 +109,6 @@ class Replica():
             self.manager = multiprocessing.Manager()
             self.client_msg_dict = self.manager.dict()
             self.per_client_msg_count = {}
-            
 
             # Flag to indicate if checkpoint was done
             self.ckpt_received = False
@@ -277,10 +276,10 @@ class Replica():
                             del self.members[replica_ip]
                     self.members_mutex.release()
 
-                    # passive NJ change
-                    if self.replication_type != "active":
-                        if self.ip == data["primary"]:
-                            self.is_primary = True
+                    # # passive NJ change
+                    # if self.replication_type != "active":
+                    #     if self.ip == data["primary"]:
+                    #         self.is_primary = True
                 
                 elif (data["type"] == "replication_type"):
                     replica_type = data["replication"]
@@ -470,62 +469,65 @@ class Replica():
                             message = data["text"]
                             self.votes[addr] = message
 
-
                         else:
                             print(RED + "Malformed Vote Packet: "+ data["type"] + RESET)
 
                 #NJ passive version
-                elif (self.is_primary == False) and (self.replication_type == "passive"):
+                else:
                     # conn = self.members[self.primary_ip]
-                    try:
-                        data = s.recv(BUF_SIZE)
-                        if data:
-                            checkpoint_msg = json.loads(data.decode("utf-8"))
-                            assert(checkpoint_msg["type"] == "checkpoint")
-
-                            self.checkpoint_lock.acquire()
-                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
-            
-                            self.main_msg_count = checkpoint_msg["main_msg_count"]
-                            self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
-                            self.ckpt_received = True
-
-                            log_list = []
-                            while(not self.client_msg_queue.empty()):
-                                data = self.client_msg_queue.get()
-                                username = data["username"]
-
-                                # Solves the issue of the 
-                                if username not in self.per_client_msg_count:
-                                    # Delete user from the user dictionary
-                                    if username in self.users:
-                                        self.users_mutex.acquire()
-                                        del self.users[username]
-                                        self.users_mutex.release()
-                                    del self.client_msg_dict[(username, data["clock"])]
-                                    continue
-
-                                # Ignore anything already processed as indicated by the checkpoint
-                                if data["clock"] < self.per_client_msg_count[username]:
-                                    del self.client_msg_dict[(username, data["clock"])]
-                                    continue
-
-                                log_list.append(data)
+                    if (self.is_primary == False):
+                        try:
                             
-                            # Write logs to log file. Use tail -f log.txt to print the logs.
-                            # This allows the logs to be printed in a separate window, so as to
-                            # not interfere with other message types
-                            self.size_of_log = len(log_list)
-                            print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
-                            
-                            with open(self.log_file_name, 'w') as f:
-                                for data in log_list:
-                                    f.write(str(data))
-                                    self.client_msg_queue.put(data)
+                            data = s.recv(BUF_SIZE)
+                            if data:
+                                checkpoint_msg = json.loads(data.decode("utf-8"))
+                                assert(checkpoint_msg["type"] == "checkpoint")
 
-                            self.checkpoint_lock.release()
-                    except:
-                        return
+                                self.checkpoint_lock.acquire()
+                                print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, checkpoint_msg) + self.ip + RESET)
+
+                                # NJ passive
+                                # self.main_msg_count = checkpoint_msg["main_msg_count"]
+                                self.rp_msg_count = checkpoint_msg["rp_msg_count"]
+                                self.per_client_msg_count = checkpoint_msg["per_client_msg_count"]
+                                self.ckpt_received = True
+
+                                log_list = []
+                                while(not self.client_msg_queue.empty()):
+                                    data = self.client_msg_queue.get()
+                                    username = data["username"]
+
+                                    # Solves the issue of the 
+                                    if username not in self.per_client_msg_count:
+                                        # Delete user from the user dictionary
+                                        if username in self.users:
+                                            self.users_mutex.acquire()
+                                            del self.users[username]
+                                            self.users_mutex.release()
+                                        del self.client_msg_dict[(username, data["clock"])]
+                                        continue
+
+                                    # Ignore anything already processed as indicated by the checkpoint
+                                    if data["clock"] < self.per_client_msg_count[username]:
+                                        del self.client_msg_dict[(username, data["clock"])]
+                                        continue
+
+                                    log_list.append(data)
+                                
+                                # Write logs to log file. Use tail -f log.txt to print the logs.
+                                # This allows the logs to be printed in a separate window, so as to
+                                # not interfere with other message types
+                                self.size_of_log = len(log_list)
+                                print(GREEN + "Size of Log:" + str(self.size_of_log) + RESET)
+                                
+                                with open(self.log_file_name, 'w') as f:
+                                    for data in log_list:
+                                        f.write(str(data))
+                                        self.client_msg_queue.put(data)
+
+                                self.checkpoint_lock.release()
+                        except:
+                            return
 
         except KeyboardInterrupt:
             s.close()
@@ -552,6 +554,8 @@ class Replica():
                 pass
         self.users_mutex.release()
         return
+
+    
 
     def get_hash_active(self, message, count):
         return hashlib.sha256(message + str(count)).hexdigest()
@@ -669,12 +673,12 @@ class Replica():
     def create_checkpoint_active(self):
         checkpoint_msg = {}
         checkpoint_msg["type"] = "checkpoint"
-        if self.replication_type == "active":
-            checkpoint_msg["rp_msg_count"] = self.rp_msg_count
-            checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
-        else:
-            checkpoint_msg["main_msg_count"] = self.main_msg_count
-            checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+        # if self.replication_type == "active":
+        checkpoint_msg["rp_msg_count"] = self.rp_msg_count
+        checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+        # else:
+        #     checkpoint_msg["main_msg_count"] = self.main_msg_count
+        #     checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
 
 
         checkpoint_msg = json.dumps(checkpoint_msg)
@@ -758,10 +762,11 @@ class Replica():
     def client_msg_queue_proc_active(self):
         while True:
             # Quiescence control added here
-            if self.replication_type == "active":
+            if self.replication_type == "active" or (self.is_primary):
                 while self.is_in_quiescence:
                     continue
 
+                
                 # Get job from the queue and process it
                 if self.client_msg_queue.empty():
                     continue
@@ -772,21 +777,22 @@ class Replica():
                 data = self.client_msg_queue.get()
                 username = data["username"]
 
-                # If the message has already been processed
-                if username not in self.per_client_msg_count:
-                    self.quiesce_lock.release()
-                    continue
+                if self.replication_type == "active":
+                    # If the message has already been processed
+                    if username not in self.per_client_msg_count:
+                        self.quiesce_lock.release()
+                        continue
 
+                    if data["clock"] < self.per_client_msg_count[username]:
+                        # del self.client_msg_dict[(username, data["clock"])]
+                        self.quiesce_lock.release()
+                        continue
 
-                if data["clock"] < self.per_client_msg_count[username]:
-                    # del self.client_msg_dict[(username, data["clock"])]
-                    self.quiesce_lock.release()
-                    continue
+                    self.broadcast_vote_active(data)
 
-                self.broadcast_vote_active(data)
+                    data = self.process_votes_active()
+                    username = data["username"]
 
-                data = self.process_votes_active()
-                username = data["username"]
 
                 self.per_client_msg_count[username] += 1
 
@@ -803,6 +809,7 @@ class Replica():
                     message = json.dumps(message)
                     self.broadcast_active(message)
                     self.rp_msg_count += 1
+
 
                 # If the client is attempting to logout
                 if (data["type"] == "logout"):
@@ -843,86 +850,6 @@ class Replica():
 
                 self.quiesce_lock.release()
                 time.sleep(0.2)
-            
-            elif self.replication_type == "passive":
-                # Primary - process messages
-                if (self.is_primary):
-
-                    # Get job from the queue and process it
-                    if self.client_msg_queue.empty():
-                        continue
-
-                    self.quiesce_lock.acquire()
-
-                    
-                    # Pop a message from the queue
-                    data = self.client_msg_queue.get()
-                    username = data["username"]
-
-                    del self.client_msg_dict[(username, data["clock"])]
-
-                    # # If the message has already been processed
-                    # # James: Is this check necessary in passive? Probably not I think.
-                    # if data["clock"] < self.per_client_msg_count[username]:
-                    #     self.quiesce_lock.release()
-                    #     continue
-                    
-                    self.per_client_msg_count[username] += 1
-
-                    # Print received message here
-                    print(YELLOW + "(PROC) -> {}".format(data) + RESET)
-                    
-                    # Login Packet
-                    if (data["type"] == "login"):
-                        # Send user joined message to all other users
-                        message = dict()
-                        message["type"] = "login_success"
-                        message["username"] = data["username"]
-                        message["clock"] = self.main_msg_count
-                        message = json.dumps(message)
-                        self.broadcast_passive(message)
-                        self.main_msg_count += 1
-
-                    # If the client is attempting to logout
-                    if (data["type"] == "logout"):
-                        s = self.users[username]
-                        # Delete the current client from the dictionary
-                        self.users_mutex.acquire()
-                        del self.users[username]
-                        self.users_mutex.release()
-
-                        del self.per_client_msg_count[username]
-
-                        print(RED + "Logout from:", username + RESET)
-
-                        message = dict()
-                        message["type"] = "logout_success"
-                        message["username"] = username
-                        message["clock"] = self.main_msg_count
-                        message = json.dumps(message)
-                        self.broadcast_passive(message)
-                        self.main_msg_count += 1
-
-                        s.close()
-
-                    # If the client sends a normal chat message
-                    elif (data["type"] == "send_message"):
-                        chat_message = data["text"]
-
-                        message = dict()
-                        message["type"] = "receive_message"
-                        message["username"] = username
-                        message["text"] = chat_message
-                        message["clock"] = self.main_msg_count
-
-                        message = json.dumps(message)
-                        self.broadcast_passive(message)
-                        self.main_msg_count += 1
-
-                    self.quiesce_lock.release()
-    
-
-       
 
     def chat_server_active(self):
         # Open listening socket of Replica
@@ -1208,11 +1135,10 @@ class Replica():
         try:
             while(1):
                 if self.replication_type == "passive":
-                    
                     # Wait until we actually receive a checkpoint interval
                     while(self.checkpoint_interval == None):
                         pass
-                    #print("hi")
+                    
                     while(1):
                         if self.replication_type == "passive":
                             if (self.is_primary):
