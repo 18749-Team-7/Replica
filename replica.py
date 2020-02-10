@@ -46,6 +46,7 @@ class Replica():
             self.client_msg_dict = self.manager.dict()
             self.per_client_msg_count = {}
             self.is_in_quiescence = True
+            self.change = False
             self.quiesce_lock = threading.Lock()
 
             # Total order data structures
@@ -170,6 +171,58 @@ class Replica():
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         print(exc_type, fname, exc_tb.tb_lineno)
 
+
+    
+
+    def checkpoint_receive2(self):
+        # checkpointing
+        self.members_mutex.acquire()
+        for _, s_replica in self.members.items():
+            if (s_replica != None):
+                try:
+                    # might be only for active NJ
+                    data = s_replica.recv(BUF_SIZE)
+                    if data:
+                        if not self.ckpt_received:
+                            replica_ckpt = json.loads(data.decode("utf-8"))
+
+                            print(MAGENTA + 'Checkpoint received from {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+
+                            assert(replica_ckpt["type"] == "checkpoint")
+                            self.rp_msg_count = replica_ckpt["rp_msg_count"]
+                            self.per_client_msg_count = replica_ckpt["per_client_msg_count"]
+                            self.ckpt_received = True
+                        else:
+                            assert(replica_ckpt["type"] == "checkpoint")
+                            checkpoint_msg = {}
+                            checkpoint_msg["type"] = "checkpoint"
+                            checkpoint_msg["rp_msg_count"] = self.rp_msg_count
+                            checkpoint_msg["per_client_msg_count"] = self.per_client_msg_count
+                            print(MAGENTA + "Internal State: {}".format(checkpoint_msg) + RESET)
+                        print(MAGENTA + "Checkpoint {}: {}".format(addr, checkpoint_msg) + RESET)
+                except:
+                    print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+                    pass
+        self.members_mutex.release()
+
+
+    def checkpoint_broadcast (self):
+        # checkpointing
+        self.members_mutex.acquire()
+        replica_ckpt = self.create_checkpoint_active()
+        for _, s_replica in self.members.items():
+            if (s_replica != None):
+                try:
+                    s_replica.send(replica_ckpt.encode("utf-8"))
+                    print(MAGENTA + 'Checkpoint sent to {}: {}'.format(addr, replica_ckpt) + self.ip + RESET)
+                except:
+                    print(RED + 'Replica ckeckpointing failed at:' + self.members[addr] + RESET)
+                    pass
+        self.members_mutex.release()
+            
+
+    
+
     ###############################################
     # Heartbeat functions
     ###############################################
@@ -286,6 +339,7 @@ class Replica():
                     print(GREEN + "Changed Replication to: " +str(replica_type) + RESET)
                     self.replication_type = replica_type
                     self.quiesce_lock.release()
+                    self.change = True
                     
 
                 elif (data["type"] == "chkpt_freq"):
@@ -294,6 +348,12 @@ class Replica():
                     if self.replication_type == "active":
                         print(GREEN + "Changed heartbeat interval to: " +str(time_val) + "s" + RESET)
                         self.hb_freq = time_val
+                        if self.change == True:
+                            self.ckpt_received = False
+                            if self.is_primary == True:
+                                self.checkpoint_broadcast()
+                            else:
+                                self.checkpoint_receive2()
                         #self.is_in_quiescence = True
                     else:
                         print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
@@ -320,6 +380,9 @@ class Replica():
             if (self.members[addr] == None):
                 return True
         return False
+
+
+
 
     def get_connection_from_old_replicas_active(self):
         # For a new Replica
@@ -386,6 +449,7 @@ class Replica():
         self.members_mutex.release()
         self.good_to_go = True
             
+
 
 
     def connect_to_new_replicas_active(self):
@@ -560,6 +624,7 @@ class Replica():
         self.users_mutex.release()
         return
 
+            
     
 
     def get_hash_active(self, message, count):
