@@ -365,6 +365,7 @@ class Replica():
         self.old_count_lock.release()
         while True:
             try:
+                s.settimeout(3)
                 data = s.recv(BUF_SIZE)
                 if data:
                     data = data.decode("utf-8")
@@ -384,11 +385,13 @@ class Replica():
                 s.close()
                 return
             except Exception as e:
-                self.print_exception()
+                if self.replication_change:
+                    break
+                #self.print_exception()
                 return
         
         s.close()
-        printf("Replica to replica thread exited")
+        print("Replica to replica thread exited")
         self.old_count_lock.acquire()
         self.old_count -= 1
         self.old_count_lock.release()
@@ -477,7 +480,7 @@ class Replica():
         # Receive, process, and retransmit chat messages from the client
         raw_data = ''
         while True:
-            print("outer")
+            #print("outer")
             if self.replication_change:
                 break
 
@@ -488,7 +491,7 @@ class Replica():
                     s.settimeout(3)
                     raw_data += s.recv(BUF_SIZE).decode("utf-8")
                  # Fix for Extra Data
-                    print("inner")
+                    #print("inner")
                     if self.replication_change:
                         break
                     start = raw_data.find("{")
