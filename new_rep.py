@@ -480,10 +480,14 @@ class Replica():
             print("outer")
             if self.replication_change:
                 break
-            try:
-                raw_data += s.recv(BUF_SIZE).decode("utf-8")
 
-                while (True): # Fix for Extra Data
+            while (True):
+                if self.replication_change:
+                    break
+                try:
+                    s.settimeout(3)
+                    raw_data += s.recv(BUF_SIZE).decode("utf-8")
+                 # Fix for Extra Data
                     print("inner")
                     if self.replication_change:
                         break
@@ -500,9 +504,6 @@ class Replica():
 
                     raw_data = raw_data[end+1:]
 
-                    
-            
-            
 
                 # data = json.loads(data)
 
@@ -512,15 +513,19 @@ class Replica():
                 # self.client_msg_dict[(username, data["clock"])] = data
                 # self.client_msg_queue.put(data)
 
-            
+                except KeyboardInterrupt:
+                    #self.print_exception()
+                    print(RED + "{} has disconnected".format(username) + RESET)
+                    s.close()
+                    break
+                    return
 
+                except Exception as e:
+                    if self.replication_change:
+                        break
+                    pass
 
-            except Exception as e:
-                self.print_exception()
-                print(RED + "{} has disconnected".format(username) + RESET)
-                s.close()
-                break
-                return
+                    
 
         s.close()
         print("client disconnected")
