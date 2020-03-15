@@ -28,131 +28,131 @@ class Replica():
     def __init__(self, replication_type, verbose=True):
         self.replication_type = replication_type
 
-        if self.replication_type == "active":
-            self.set_host_ip_active()
-            self.ip = self.host_ip
-            self.verbose = verbose
-            
-            self.client_port  = 5000
-            self.HB_port      = 10000
-            self.RM_port      = 15000
-            self.replica_port = 20000
-
-            # Queues and Dicts
-            self.rp_msg_count = 0
-            self.main_msg_count = 0
-            self.client_msg_queue = multiprocessing.Queue()
-            self.manager = multiprocessing.Manager()
-            self.client_msg_dict = self.manager.dict()
-            self.per_client_msg_count = {}
-            self.is_in_quiescence = True
-            self.quiesce_lock = threading.Lock()
-
-            # Total order data structures
-            self.votes = {}
-
-            # Flag to indicate if checkpoint was done
-            self.ckpt_received = False
-
-            self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
-
-            # Global variables
-            self.users = dict()
-            self.users_mutex = threading.Lock() # Lock on users dict
-
-            self.msg_count = 0
-            self.count_mutex = threading.Lock() # Lock on message_count
-
-            self.members = dict()
-            self.members_mutex = threading.Lock() # Lock on replica members dict
-
-            # Passive replication fields
-            self.is_primary = False
-            self.checkpoint_interval = None
-            # self.is_in_quiescence = False # NJ passive false active true
-            self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
-            self.log_file_name = "log.txt"
-            self.size_of_log = 0
-
-
-            # Start the heartbeat thread
-            self.hb_freq = 1
-            self.start_heartbeat_active() # TODO: Don't hardcode these values. Interval = 1 sec
-
-            # Start the RM thread
-            # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
-            # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
-            threading.Thread(target=self.rm_thread_active, daemon=True).start()
-
-            # Start the checkpoint_send_thread
-            threading.Thread(target=self.checkpoint_send_thread_passive, daemon=True).start()
-
-            # Start the chat server
-            print(MAGENTA + "Quiescence start" + RESET)
-            # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
-            print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
-            threading.Thread(target=self.client_msg_queue_proc_active, daemon=True).start()
-            self.chat_server_active()
+        #if self.replication_type == "active":
+        self.set_host_ip_active()
+        self.ip = self.host_ip
+        self.verbose = verbose
         
-        else:
-            self.set_host_ip_passive()
-            self.ip = self.host_ip
-            self.verbose = verbose
-            self.client_port  = 5000
-            self.HB_port      = 10000
-            self.RM_port      = 15000
-            self.replica_port = 20000
+        self.client_port  = 5000
+        self.HB_port      = 10000
+        self.RM_port      = 15000
+        self.replica_port = 20000
 
-            # Queues and Dicts
-            self.main_msg_count = 0
-            self.client_msg_queue = multiprocessing.Queue()
-            self.manager = multiprocessing.Manager()
-            self.client_msg_dict = self.manager.dict()
-            self.per_client_msg_count = {}
+        # Queues and Dicts
+        self.rp_msg_count = 0
+        self.main_msg_count = 0
+        self.client_msg_queue = multiprocessing.Queue()
+        self.manager = multiprocessing.Manager()
+        self.client_msg_dict = self.manager.dict()
+        self.per_client_msg_count = {}
+        self.is_in_quiescence = True
+        self.quiesce_lock = threading.Lock()
 
-            # Flag to indicate if checkpoint was done
-            self.ckpt_received = False
+        # Total order data structures
+        self.votes = {}
 
-            self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
+        # Flag to indicate if checkpoint was done
+        self.ckpt_received = False
 
-            # Global variables
-            self.users = dict()
-            self.users_mutex = threading.Lock() # Lock on users dict
+        self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
 
-            self.msg_count = 0
-            self.count_mutex = threading.Lock() # Lock on message_count
+        # Global variables
+        self.users = dict()
+        self.users_mutex = threading.Lock() # Lock on users dict
 
-            self.members = dict()
-            self.members_mutex = threading.Lock() # Lock on replica members dict
+        self.msg_count = 0
+        self.count_mutex = threading.Lock() # Lock on message_count
 
-            # Passive replication fields
-            self.is_primary = False
-            self.checkpoint_interval = None
-            self.quiesce_lock = threading.Lock() # Lock for active replicas when creating and sending checkpoint
-            self.is_in_quiescence = False # Flag to allow printing of logs during quiescence
-            self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
-            self.log_file_name = "log.txt"
-            self.size_of_log = 0
+        self.members = dict()
+        self.members_mutex = threading.Lock() # Lock on replica members dict
 
-            # self.primary_ip = None # This field should be unnecessary. We can listen to all other replicas all the time and make the assumption that only the 
-            # actual primary will send the checkpoint. 
+        # Passive replication fields
+        self.is_primary = False
+        self.checkpoint_interval = None
+        # self.is_in_quiescence = False # NJ passive false active true
+        self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
+        self.log_file_name = "log.txt"
+        self.size_of_log = 0
 
-            # Start the heartbeat thread
-            self.start_heartbeat_passive(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
 
-            # Start the RM thread
-            # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
-            # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
-            # It will also start checkpoint_receive_threads for each other replica
-            threading.Thread(target=self.rm_thread_passive, daemon=True).start()
+        # Start the heartbeat thread
+        self.hb_freq = 1
+        self.start_heartbeat_active() # TODO: Don't hardcode these values. Interval = 1 sec
 
-            # Start the checkpoint_send_thread
-            threading.Thread(target=self.checkpoint_send_thread_passive, daemon=True).start()
+        # Start the RM thread
+        # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
+        # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
+        threading.Thread(target=self.rm_thread_active, daemon=True).start()
 
-            # Start the chat server
-            print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
-            threading.Thread(target=self.client_message_processing_thread_passive, daemon=True).start()
-            self.chat_server_passive()
+        # Start the checkpoint_send_thread
+        threading.Thread(target=self.checkpoint_send_thread_passive, daemon=True).start()
+
+        # Start the chat server
+        print(MAGENTA + "Quiescence start" + RESET)
+        # threading.Thread(target=self.print_membership_thread,args=(1,)).start()
+        print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
+        threading.Thread(target=self.client_msg_queue_proc_active, daemon=True).start()
+        self.chat_server_active()
+        
+        # else:
+        #     self.set_host_ip_passive()
+        #     self.ip = self.host_ip
+        #     self.verbose = verbose
+        #     self.client_port  = 5000
+        #     self.HB_port      = 10000
+        #     self.RM_port      = 15000
+        #     self.replica_port = 20000
+
+        #     # Queues and Dicts
+        #     self.main_msg_count = 0
+        #     self.client_msg_queue = multiprocessing.Queue()
+        #     self.manager = multiprocessing.Manager()
+        #     self.client_msg_dict = self.manager.dict()
+        #     self.per_client_msg_count = {}
+
+        #     # Flag to indicate if checkpoint was done
+        #     self.ckpt_received = False
+
+        #     self.good_to_go = False # Set to True once we are up to date with other replicas (via checkpointing + logging)
+
+        #     # Global variables
+        #     self.users = dict()
+        #     self.users_mutex = threading.Lock() # Lock on users dict
+
+        #     self.msg_count = 0
+        #     self.count_mutex = threading.Lock() # Lock on message_count
+
+        #     self.members = dict()
+        #     self.members_mutex = threading.Lock() # Lock on replica members dict
+
+        #     # Passive replication fields
+        #     self.is_primary = False
+        #     self.checkpoint_interval = None
+        #     self.quiesce_lock = threading.Lock() # Lock for active replicas when creating and sending checkpoint
+        #     self.is_in_quiescence = False # Flag to allow printing of logs during quiescence
+        #     self.checkpoint_lock = threading.Lock() # Lock for passive replicas when receiving and implementing checkpoint
+        #     self.log_file_name = "log.txt"
+        #     self.size_of_log = 0
+
+        #     # self.primary_ip = None # This field should be unnecessary. We can listen to all other replicas all the time and make the assumption that only the 
+        #     # actual primary will send the checkpoint. 
+
+        #     # Start the heartbeat thread
+        #     self.start_heartbeat_passive(interval=1) # TODO: Don't hardcode these values. Interval = 1 sec
+
+        #     # Start the RM thread
+        #     # Upon startup, this Replica will receive the add_replicas packet with its own IP. 
+        #     # It will initiate get_connection_from_old_replicas() to get up to date with the other replicas
+        #     # It will also start checkpoint_receive_threads for each other replica
+        #     threading.Thread(target=self.rm_thread_passive, daemon=True).start()
+
+        #     # Start the checkpoint_send_thread
+        #     threading.Thread(target=self.checkpoint_send_thread_passive, daemon=True).start()
+
+        #     # Start the chat server
+        #     print(RED + "Starting chat server on " + str(self.host_ip) + ":" + str(self.client_port) + RESET)
+        #     threading.Thread(target=self.client_message_processing_thread_passive, daemon=True).start()
+        #     self.chat_server_passive()
 
     ###############################################
     # Active Replication Supporting functions
@@ -296,8 +296,9 @@ class Replica():
                     else:
                         print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
                         self.checkpoint_interval = time_val
-                        if self.ip == data["primary"]:
-                            self.is_primary = True
+                        self.is_in_quiescence = False
+                        # if self.ip == data["primary"]:
+                        #     self.is_primary = True
                     self.quiesce_lock.release()
                     
                 else:
@@ -460,6 +461,8 @@ class Replica():
     def replica_receive_thread_active(self, s, addr):
         try:
             while True:
+                print(self.is_primary)
+                print(self.replication_type)
                 #NJ change activer version
                 if self.replication_type == "active":
                     data = s.recv(BUF_SIZE)
@@ -477,6 +480,7 @@ class Replica():
                 #NJ passive version
                 else:
                     # conn = self.members[self.primary_ip]
+                    
                     if (self.is_primary == False):
                         try:
                             
