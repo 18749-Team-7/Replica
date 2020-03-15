@@ -474,8 +474,8 @@ class Replica():
                             message = data["text"]
                             self.votes[addr] = message
 
-                        else:
-                            print(RED + "Malformed Vote Packet: "+ data["type"] + RESET)
+                        # else:
+                        #     print(RED + "Malformed Vote Packet: "+ data["type"] + RESET)
 
                 #NJ passive version
                 else:
