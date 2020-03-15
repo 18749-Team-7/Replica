@@ -297,8 +297,8 @@ class Replica():
                         print(GREEN + "Checkpoint Interval changed to: {} s".format(time_val) + RESET)
                         self.checkpoint_interval = time_val
                         self.is_in_quiescence = False
-                        # if self.ip == data["primary"]:
-                        #     self.is_primary = True
+                        if self.ip == data["primary"]:
+                            self.is_primary = True
                     self.quiesce_lock.release()
                     
                 else:
@@ -461,8 +461,8 @@ class Replica():
     def replica_receive_thread_active(self, s, addr):
         try:
             while True:
-                print(self.is_primary)
-                print(self.replication_type)
+                # print(self.is_primary)
+                # print(self.replication_type)
                 #NJ change activer version
                 if self.replication_type == "active":
                     data = s.recv(BUF_SIZE)
